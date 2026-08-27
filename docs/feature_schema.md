@@ -207,3 +207,52 @@ hypothesis, and hypotheses need checking against known cases before they are
 wired into a distance metric. This one was checked and failed. Others in the
 `META` column above are checked only in the weak sense that they behave
 plausibly on inspection — §9 evaluation is what will actually settle them.
+
+---
+
+# v0.3 — first labelled batch, and a sampling failure
+
+24 shows labelled (`labelling/labels.jsonl`), model trained. Headline: **31 of
+37 axes beat the mean baseline**, mean MAE 0.176 on a 0–1 scale, from only 24
+training examples. The mood block scores particularly well — `campy` 0.37,
+`bleak` 0.27, `melancholy` 0.26, `whimsical` 0.23, `cosy` 0.23 — which matters,
+because mood is the block TMDB metadata could not ground at all. The model is
+reading mood out of text.
+
+## The failure: the sample cannot see horror
+
+The six axes with negative R² are `cynical`, `creepy`, `horror`, `earnest`,
+`historical`, `sentimental`. Every one is an axis where the training set has
+almost no variance. `horror` has label mean 0.07 and sd 0.09 across 24 shows.
+
+Consequence on held-out titles:
+
+| Show | predicted `horror` |
+|---|---|
+| The Haunting of Hill House | 0.10 |
+| Stranger Things | 0.10 |
+| Sweet Home | 0.09 |
+| Wednesday | 0.10 |
+
+The model has never seen a horror show, so it predicts the mean for all of them.
+
+**The cause is the sampling method, not the model.** `export_batch.py`
+stratifies by primary TMDB genre. TMDB TV has no Horror genre (see the v0.1
+analysis above), so horror can never be selected as a stratum and none arrived
+by chance. The stratification is systematically blind to exactly the axes this
+project exists to capture.
+
+This is a useful result rather than an embarrassing one: it is a concrete
+demonstration that a missing category in the source taxonomy propagates all the
+way through to a blind spot in a learned model, and that per-axis evaluation
+catches it while an aggregate score would have hidden it. Mean MAE of 0.176
+looks fine; it conceals a model that cannot recognise horror at all.
+
+## Fix for batch 2
+
+Sample to cover **label space**, not genre space. Deliberately include titles
+likely to score high on the under-covered axes — horror and creepy (The
+Haunting of Hill House, Sweet Home, Black Mirror), historical (The Crown,
+Peaky Blinders, Chernobyl), cynical and campy. Then re-check per-axis variance
+in the training set *before* training, so the gap is caught automatically
+rather than by inspection.

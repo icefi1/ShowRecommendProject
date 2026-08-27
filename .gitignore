@@ -11,7 +11,7 @@ app/feature_space.npz
 app/feature_space.json
 
 # Labelling and training outputs
-labelling/labels.jsonl
+labelling/batch.txt
 training/model.joblib
 training/predictions.csv
 training/report.md
