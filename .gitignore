@@ -7,3 +7,5 @@ shows_raw.json
 shows.csv
 episodes.json
 episode_features.csv
+app/feature_space.npz
+app/feature_space.json

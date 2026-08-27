@@ -149,3 +149,61 @@ scored consistently twice, the definition is ambiguous and no model will fix
 it. Expect to rewrite axes. Candidates from the sample spanning the space:
 Breaking Bad, The Office, Rick and Morty, Stranger Things, Black Mirror,
 Bridgerton, Peaky Blinders, Demon Slayer, Queer Eye, Chernobyl.
+
+---
+
+# v0.2 update — measured grounding
+
+The episode pipeline has since run: 46,264 episodes across 499 shows, carrying
+~1.66M words of episode overview text and 29,670 independently rated episodes.
+That moves several axes off `WEAK`. It also produced one clear negative result,
+recorded here because it is the kind of thing a report should not quietly drop.
+
+## Axes now grounded by measurement
+
+| Axis | Was | Now | How it is measured |
+|---|---|---|---|
+| `slow_burn` | `WEAK` | `META` | Least-squares slope of `vote_average` across season 1. Positive slope = opens weak, climbs. |
+| `plot_complexity` | `WEAK` | `TEXT` | Proper-noun density across episode overviews — how many names and factions a viewer must track. |
+| `emotional_intensity` | `WEAK` | `META` | `vote_count` peak-to-median ratio: how far the standout episode stands above the typical one. |
+| `ensemble` | `TEXT` | `META` | Mean per-episode credited cast size (see failed prediction below). |
+
+`serialised` is partly grounded via per-episode rating variance and
+finale-versus-mean delta, but neither separates cleanly on inspection, so it
+stays `WEAK` pending proper evaluation.
+
+`jumpscares`, `gore` and `plot_twists` remain `WEAK`. Nothing in TMDB
+evidences them, at either the series or the episode level.
+
+## Failed prediction: guest star churn does not measure serialisation
+
+`guest_star_mean` was added expecting it to separate procedurals (fresh guest
+cast every week) from serialised drama (standing cast). **It does the
+opposite.** Measured over the catalogue:
+
+| Group | Mean credited guest stars per episode |
+|---|---|
+| Procedurals (SVU, The Mentalist, House, The Rookie, Bones) | 13.2 |
+| Serialised (Breaking Bad, Stranger Things, Money Heist, Dark, Squid Game) | 19.2 |
+
+The cause is a misreading of the field. TMDB's `guest_stars` is the per-episode
+supporting cast credit, not a marker of one-off guest appearances. It therefore
+tracks ensemble *size*, and large-ensemble serialised shows (Stranger Things
+25.9, Dark 24.4) score highest.
+
+Two consequences:
+
+1. The axis is retained, but re-labelled as `ensemble`, which is what it
+   actually measures, and the interface phrasing was corrected — an explanation
+   that says "fresh cast weekly" about Stranger Things is worse than no
+   explanation at all, because explainability is the contribution.
+2. A genuine churn measure requires guest star *identities* compared across
+   episodes, computing turnover rather than count. `fetch_episodes.py`
+   currently keeps only `guest_star_count` and discards the identities, so this
+   needs a re-fetch before it can be tested.
+
+The general lesson, worth stating in the report: a derived feature is a
+hypothesis, and hypotheses need checking against known cases before they are
+wired into a distance metric. This one was checked and failed. Others in the
+`META` column above are checked only in the weak sense that they behave
+plausibly on inspection — §9 evaluation is what will actually settle them.

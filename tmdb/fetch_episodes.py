@@ -44,12 +44,37 @@ PAUSE = 0.25
 MAX_APPEND = 20
 
 
+MAX_RETRIES = 4
+
+
 def get(path, **params):
-    """One GET against the TMDB API, with a polite pause afterwards."""
-    response = requests.get(f"{BASE}{path}", headers=HEADERS, params=params, timeout=30)
-    response.raise_for_status()
-    time.sleep(PAUSE)
-    return response.json()
+    """
+    One GET against the TMDB API, with a polite pause afterwards.
+
+    Retries on transient network failures. Over ~500 requests a dropped
+    connection is not an edge case, it is a certainty, and the first version of
+    this script lost a full run to one. Backoff doubles each attempt so a
+    struggling server is not hammered.
+    """
+    for attempt in range(MAX_RETRIES):
+        try:
+            response = requests.get(
+                f"{BASE}{path}", headers=HEADERS, params=params, timeout=30
+            )
+            response.raise_for_status()
+            time.sleep(PAUSE)
+            return response.json()
+        except requests.RequestException as error:
+            # 4xx responses are our fault and will fail identically on retry.
+            status = getattr(error.response, "status_code", None)
+            if status is not None and 400 <= status < 500 and status != 429:
+                raise
+            if attempt == MAX_RETRIES - 1:
+                raise
+            backoff = 2 ** attempt
+            print(f"    retry {attempt + 1}/{MAX_RETRIES - 1} after {error.__class__.__name__} "
+                  f"- waiting {backoff}s")
+            time.sleep(backoff)
 
 
 def chunked(items, size):
@@ -101,6 +126,7 @@ def main():
     shows = json.loads((HERE / "shows_raw.json").read_text(encoding="utf-8"))
     print(f"Loaded {len(shows)} shows")
 
+    out = HERE / "episodes.json"
     all_episodes = []
 
     for index, show in enumerate(shows, start=1):
@@ -116,16 +142,20 @@ def main():
 
         try:
             episodes = fetch_episodes_for_show(show["id"], season_numbers)
-        except requests.HTTPError as error:
-            print(f"  skipped {show.get('name')}: {error}")
+        # RequestException is the parent of HTTPError, ConnectionError and
+        # Timeout. Catching only HTTPError let a dropped connection kill a run
+        # that had already fetched 30,000 episodes.
+        except requests.RequestException as error:
+            print(f"  skipped {show.get('name')}: {error.__class__.__name__}")
             continue
 
         all_episodes.extend(episodes)
 
         if index % 25 == 0:
             print(f"  {index}/{len(shows)} shows - {len(all_episodes)} episodes so far")
+            # Checkpoint. A crash at show 480 should not cost the first 479.
+            out.write_text(json.dumps(all_episodes, ensure_ascii=False), encoding="utf-8")
 
-    out = HERE / "episodes.json"
     out.write_text(json.dumps(all_episodes, ensure_ascii=False), encoding="utf-8")
 
     with_overview = sum(1 for e in all_episodes if e["overview"])

@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Show Recommender</title>
+<style>
+  :root {
+    --bg: #12131a;
+    --panel: #1b1d27;
+    --panel-2: #232634;
+    --line: #303446;
+    --text: #e7e9f0;
+    --muted: #969ab0;
+    --accent: #7aa2f7;
+    --good: #9ece6a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    padding: 20px 28px 16px;
+    border-bottom: 1px solid var(--line);
+  }
+  h1 { margin: 0; font-size: 19px; font-weight: 600; letter-spacing: -0.01em; }
+  header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+  .layout { display: grid; grid-template-columns: 320px 1fr; min-height: calc(100vh - 74px); }
+  aside { border-right: 1px solid var(--line); padding: 20px; background: var(--panel); }
+  main { padding: 20px 28px; min-width: 0; }
+
+  .tabs { display: flex; gap: 4px; margin-bottom: 18px; }
+  .tab {
+    flex: 1; padding: 8px; text-align: center; cursor: pointer; font-size: 13px;
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px;
+    color: var(--muted); user-select: none;
+  }
+  .tab[aria-selected="true"] { background: var(--accent); color: #12131a; font-weight: 600; border-color: var(--accent); }
+
+  label.field { display: block; font-size: 12px; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--muted); margin: 16px 0 6px; }
+  input[type=text] {
+    width: 100%; padding: 9px 11px; background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 6px; font-size: 14px;
+  }
+  input[type=text]:focus { outline: none; border-color: var(--accent); }
+
+  .results-list { margin-top: 6px; max-height: 210px; overflow-y: auto; }
+  .hit {
+    padding: 7px 10px; border-radius: 5px; cursor: pointer; font-size: 13px;
+    display: flex; justify-content: space-between; gap: 8px;
+  }
+  .hit:hover { background: var(--panel-2); }
+  .hit span:last-child { color: var(--muted); flex-shrink: 0; }
+
+  .chosen {
+    margin-top: 10px; padding: 10px 12px; background: var(--panel-2);
+    border: 1px solid var(--accent); border-radius: 6px; font-size: 14px;
+  }
+  .chosen small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+
+  .slider-row { margin: 12px 0; }
+  .slider-row header { display: flex; justify-content: space-between; padding: 0;
+    border: 0; font-size: 13px; margin-bottom: 3px; }
+  .slider-row .val { color: var(--accent); font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+
+  .genre-grid { display: flex; flex-wrap: wrap; gap: 5px; }
+  .genre {
+    padding: 4px 9px; font-size: 12px; border-radius: 20px; cursor: pointer;
+    background: var(--panel-2); border: 1px solid var(--line); color: var(--muted);
+  }
+  .genre[aria-pressed="true"] { background: var(--accent); color: #12131a; border-color: var(--accent); font-weight: 600; }
+
+  .meta-line { color: var(--muted); font-size: 12px; margin-bottom: 14px; }
+  .meta-line b { color: var(--good); font-weight: 600; }
+
+  .card {
+    display: grid; grid-template-columns: 56px 1fr auto; gap: 14px;
+    padding: 12px; margin-bottom: 8px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  }
+  .card img { width: 56px; height: 84px; object-fit: cover; border-radius: 4px; background: var(--panel-2); }
+  .card h3 { margin: 0 0 2px; font-size: 15px; font-weight: 600; }
+  .card .sub { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+  .card .why { font-size: 13px; color: #c3c8da; }
+  .card .why em { color: var(--accent); font-style: normal; }
+  .score { text-align: right; font-variant-numeric: tabular-nums; }
+  .score .big { font-size: 17px; font-weight: 600; color: var(--good); }
+  .score .parts { font-size: 11px; color: var(--muted); margin-top: 4px; line-height: 1.35; }
+
+  .empty { color: var(--muted); padding: 40px 0; text-align: center; }
+  footer { padding: 14px 28px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Show Recommender</h1>
+  <p>Search a title or describe what you want. Every result explains itself.</p>
+</header>
+
+<div class="layout">
+  <aside>
+    <div class="tabs" role="tablist">
+      <div class="tab" role="tab" id="tab-show" aria-selected="true">By show</div>
+      <div class="tab" role="tab" id="tab-pref" aria-selected="false">By preference</div>
+    </div>
+
+    <section id="panel-show">
+      <label class="field" for="q">Find a show</label>
+      <input type="text" id="q" placeholder="Breaking Bad, Peaky Blinders&hellip;" autocomplete="off">
+      <div class="results-list" id="hits"></div>
+      <div id="chosen"></div>
+    </section>
+
+    <section id="panel-pref" hidden>
+      <label class="field">Genres</label>
+      <div class="genre-grid" id="genres"></div>
+      <label class="field">Shape of the thing</label>
+      <div id="structure-dials"></div>
+    </section>
+
+    <label class="field">Block weights</label>
+    <div id="weights"></div>
+  </aside>
+
+  <main>
+    <div class="meta-line" id="meta"></div>
+    <div id="results"><div class="empty">Pick a show, or switch to preference mode.</div></div>
+  </main>
+</div>
+
+<footer>This product uses the TMDB API but is not endorsed or certified by TMDB.</footer>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const state = { mode: "show", show: null, weights: {}, structure: {}, genres: new Set(), axes: null };
+
+// Axes the dials expose. The structure block has more axes than this, but a
+// wall of 13 sliders is not "usable in ten seconds" - these are the ones a
+// person can form an intention about.
+const DIAL_LABELS = {
+  episode_count:  ["Few episodes", "Many episodes"],
+  season_count:   ["One season", "Many seasons"],
+  episode_length: ["Short episodes", "Long episodes"],
+  maturity:       ["Family friendly", "Very adult"],
+  audience_rating:["Any reception", "Highly rated"],
+  slow_burn_slope:["Strong from the start", "Slow burn"],
+  guest_star_mean:["Tight core cast", "Large ensemble"],
+  entity_density: ["Simple cast", "Many names to track"],
+};
+
+async function boot() {
+  state.axes = await (await fetch("/api/axes")).json();
+  state.weights = { ...state.axes.default_weights };
+  drawWeights();
+  drawGenres();
+  drawDials();
+  $("#meta").textContent =
+    `${state.axes.catalogue_size} shows · ${state.axes.genres.length} genres · `
+    + `${state.axes.keyword_count} keyword dimensions · ${state.axes.structure.length} structure axes`;
+}
+
+function drawWeights() {
+  $("#weights").innerHTML = Object.keys(state.weights).map((name) => `
+    <div class="slider-row">
+      <header><span>${name}</span><span class="val" id="wv-${name}">${state.weights[name].toFixed(2)}</span></header>
+      <input type="range" min="0" max="1" step="0.05" value="${state.weights[name]}" data-weight="${name}">
+    </div>`).join("");
+
+  $("#weights").oninput = (e) => {
+    const name = e.target.dataset.weight;
+    state.weights[name] = parseFloat(e.target.value);
+    $(`#wv-${name}`).textContent = state.weights[name].toFixed(2);
+    run();
+  };
+}
+
+function drawGenres() {
+  $("#genres").innerHTML = state.axes.genres
+    .map((g) => `<div class="genre" role="button" aria-pressed="false" data-genre="${g}">${g}</div>`).join("");
+  $("#genres").onclick = (e) => {
+    const el = e.target.closest("[data-genre]");
+    if (!el) return;
+    const on = el.getAttribute("aria-pressed") === "true";
+    el.setAttribute("aria-pressed", String(!on));
+    on ? state.genres.delete(el.dataset.genre) : state.genres.add(el.dataset.genre);
+    run();
+  };
+}
+
+function drawDials() {
+  const available = state.axes.structure.filter((a) => DIAL_LABELS[a]);
+  $("#structure-dials").innerHTML = available.map((axis) => {
+    state.structure[axis] = 0.5;
+    const [low, high] = DIAL_LABELS[axis];
+    return `
+      <div class="slider-row">
+        <header><span>${low}</span><span style="color:var(--muted)">${high}</span></header>
+        <input type="range" min="0" max="1" step="0.05" value="0.5" data-axis="${axis}">
+      </div>`;
+  }).join("");
+
+  $("#structure-dials").oninput = (e) => {
+    state.structure[e.target.dataset.axis] = parseFloat(e.target.value);
+    run();
+  };
+}
+
+// --- search -----------------------------------------------------------------
+
+let searchTimer;
+$("#q").oninput = (e) => {
+  clearTimeout(searchTimer);
+  const term = e.target.value;
+  // Debounced so a fast typist does not fire a request per keystroke.
+  searchTimer = setTimeout(async () => {
+    if (!term.trim()) { $("#hits").innerHTML = ""; return; }
+    const data = await (await fetch(`/api/search?q=${encodeURIComponent(term)}`)).json();
+    $("#hits").innerHTML = data.results.map((s) =>
+      `<div class="hit" data-id="${s.id}"><span>${s.name}</span><span>${s.year}</span></div>`).join("")
+      || `<div class="hit"><span style="color:var(--muted)">No match</span></div>`;
+  }, 140);
+};
+
+$("#hits").onclick = (e) => {
+  const el = e.target.closest("[data-id]");
+  if (!el) return;
+  pickShow(parseInt(el.dataset.id, 10));
+};
+
+function pickShow(id) {
+  state.show = id;
+  $("#hits").innerHTML = "";
+  $("#q").value = "";
+  // The chosen show's details come back on the query response, so there is no
+  // second lookup here.
+  run();
+}
+
+// --- querying ---------------------------------------------------------------
+
+function prompt(message) {
+  $("#results").innerHTML = `<div class="empty">${message}</div>`;
+  $("#meta").innerHTML =
+    `${state.axes.catalogue_size} shows · ${state.axes.keyword_count} keyword dimensions `
+    + `· ${state.axes.structure.length} structure axes`;
+}
+
+async function run() {
+  if (state.mode === "show") {
+    if (!state.show) return prompt("Search for a show to see what it sits near.");
+    const w = state.weights;
+    const url = `/api/similar/${state.show}?genre=${w.genre}&keywords=${w.keywords}&structure=${w.structure}`;
+    render(await (await fetch(url)).json(), true);
+  } else {
+    // A query where every dial sits at its neutral midpoint and no genre is
+    // chosen expresses no preference at all. Ranking against it returns
+    // whatever happens to sit nearest the centre of the space, which looks
+    // like a result but means nothing. Ask for an intention instead.
+    const moved = Object.values(state.structure).some((v) => v !== 0.5);
+    if (!moved && state.genres.size === 0) {
+      return prompt("Pick a genre or move a dial to describe what you want.");
+    }
+
+    const body = {
+      structure: state.structure,
+      genres: [...state.genres],
+      weights: state.weights,
+      limit: 12,
+    };
+    render(await (await fetch("/api/preference", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })).json(), false);
+  }
+}
+
+function render(data, showQuery) {
+  if (showQuery && data.query_show) {
+    const q = data.query_show;
+    $("#chosen").innerHTML =
+      `<div class="chosen">${q.name}<small>${q.year} · ${q.genres.join(", ")} · ${q.episodes} episodes</small></div>`;
+  }
+
+  $("#meta").innerHTML =
+    `${data.results.length} results in <b>${data.query_ms} ms</b> · `
+    + `${state.axes.catalogue_size} shows · ${state.axes.keyword_count} keyword dimensions`;
+
+  if (!data.results.length) {
+    $("#results").innerHTML = `<div class="empty">Nothing matched.</div>`;
+    return;
+  }
+
+  $("#results").innerHTML = data.results.map((r) => {
+    const poster = r.poster
+      ? `<img src="https://image.tmdb.org/t/p/w92${r.poster}" alt="" loading="lazy">`
+      : `<div style="width:56px;height:84px;background:var(--panel-2);border-radius:4px"></div>`;
+    const parts = Object.entries(r.block_scores)
+      .map(([k, v]) => `${k[0]}${v.toFixed(2)}`).join(" · ");
+    return `
+      <article class="card">
+        ${poster}
+        <div>
+          <h3>${r.name}</h3>
+          <div class="sub">${r.year} · ${r.genres.join(", ") || "—"} · ${r.episodes} eps · ★ ${r.rating}</div>
+          <div class="why">${r.explanation || r.overview.slice(0, 120) + "…"}</div>
+        </div>
+        <div class="score">
+          <div class="big">${(r.score * 100).toFixed(0)}</div>
+          <div class="parts">${parts}</div>
+        </div>
+      </article>`;
+  }).join("");
+}
+
+// --- tabs -------------------------------------------------------------------
+
+$("#tab-show").onclick = () => switchMode("show");
+$("#tab-pref").onclick = () => switchMode("pref");
+
+function switchMode(mode) {
+  state.mode = mode;
+  $("#tab-show").setAttribute("aria-selected", String(mode === "show"));
+  $("#tab-pref").setAttribute("aria-selected", String(mode === "pref"));
+  $("#panel-show").hidden = mode !== "show";
+  $("#panel-pref").hidden = mode !== "pref";
+  $("#chosen").innerHTML = mode === "show" ? $("#chosen").innerHTML : "";
+  run();
+}
+
+boot();
+</script>
+</body>
+</html>
