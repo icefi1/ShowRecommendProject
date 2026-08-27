@@ -3,3 +3,7 @@ venv/
 __pycache__/
 *.pyc
 shows_raw.json
+# Generated data - regenerate with the scripts in tmdb/
+shows.csv
+episodes.json
+episode_features.csv
