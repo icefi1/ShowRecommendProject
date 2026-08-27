@@ -9,3 +9,9 @@ episodes.json
 episode_features.csv
 app/feature_space.npz
 app/feature_space.json
+
+# Labelling and training outputs
+labelling/labels.jsonl
+training/model.joblib
+training/predictions.csv
+training/report.md
