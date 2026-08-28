@@ -25,6 +25,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from app.crowd import CrowdStore
+from app.crowd import fuse as crowd_fuse
 from app.similarity import DEFAULT_WEIGHTS, FeatureSpace
 
 HERE = Path(__file__).resolve().parent
@@ -84,9 +86,73 @@ def load_predicted_axes():
 
 PREDICTED, PREDICTED_AXES = load_predicted_axes()
 
+# Vote storage. SQLite: one file, no server, standard library - the right size
+# for this, and it keeps the raw votes as research data rather than only a cache.
+crowd = CrowdStore()
+
+
+class Vote(BaseModel):
+    """
+    One descriptive vote on one axis of one show.
+
+    Note what is NOT here: there is no whole-show vote and no rating field. The
+    only thing a person can express is whether a named axis describes a show
+    well, which is the separation report S6.3 requires - blend descriptive and
+    evaluative votes and every popular show drifts high on every flattering
+    axis.
+    """
+
+    show_id: int
+    axis: str
+    direction: str = Field(pattern="^(up|down|neutral)$")
+    # What the voter had on screen. "Higher" is meaningless without it.
+    score_shown: float = Field(ge=0.0, le=1.0)
+    voter: str = Field(min_length=8, max_length=64)
+
+
+@app.post("/api/vote")
+def vote(v: Vote):
+    if v.show_id not in space.index_by_id:
+        raise HTTPException(status_code=404, detail="Unknown show id")
+    if v.axis not in PREDICTED_AXES:
+        raise HTTPException(status_code=400, detail="Unknown axis")
+
+    crowd.cast(v.show_id, v.axis, v.direction, v.score_shown, v.voter)
+    priors = PREDICTED.get(v.show_id, {})
+    return {"axis": v.axis, "state": crowd.state_for_show(v.show_id, priors, v.voter)[v.axis]}
+
+
+@app.get("/api/disagreements")
+def disagreements(min_votes: int = 3, limit: int = 40):
+    """
+    Where the crowd has moved the model most - the labelled error data of S6.3.
+
+    Reported rather than silently applied: an axis the crowd consistently
+    overrides is a measurement of where the model is weak, and that belongs in
+    the evaluation chapter.
+    """
+    rows = []
+    for row in crowd.disagreements(limit=limit, min_votes=min_votes):
+        priors = PREDICTED.get(row["show_id"], {})
+        prior = priors.get(row["axis"])
+        if prior is None:
+            continue
+        posterior = crowd_fuse(prior, row["n_votes"], row["sum_targets"])
+        index = space.index_by_id.get(row["show_id"])
+        rows.append({
+            "show": space.catalogue[index]["name"] if index is not None else row["show_id"],
+            "axis": row["axis"],
+            "model": round(prior, 3),
+            "crowd": round(posterior, 3),
+            "drift": round(posterior - prior, 3),
+            "n_votes": row["n_votes"],
+        })
+    rows.sort(key=lambda r: -abs(r["drift"]))
+    return {"rows": rows, "totals": crowd.totals()}
+
 
 @app.get("/api/show/{show_id}")
-def show_detail(show_id: int):
+def show_detail(show_id: int, voter: str = ""):
     """Everything the detail panel needs for one show."""
     index = space.index_by_id.get(show_id)
     if index is None:
@@ -109,12 +175,19 @@ def show_detail(show_id: int):
     show["top_keywords"] = [vocabulary[i] for i in ranked[:12] if keyword_row[i] > 0]
 
     predicted = PREDICTED.get(show_id, {})
-    show["predicted"] = {k: round(v, 3) for k, v in predicted.items()}
-    # Ranked so the panel can lead with what most describes the show.
-    show["predicted_top"] = sorted(
-        predicted.items(), key=lambda kv: -kv[1]
-    )[:10]
     show["has_model"] = bool(predicted)
+
+    # Every axis carries its model prior, its crowd-corrected score, the vote
+    # tallies, and this voter's own standing vote. With no votes anywhere the
+    # scores equal the priors exactly, so the page renders identically before
+    # and after the crowd layer exists.
+    show["axes"] = crowd.state_for_show(show_id, predicted, voter or None)
+
+    # Ranked by the corrected score, so the panel leads with what most
+    # describes the show according to model and crowd together.
+    show["axes_top"] = sorted(
+        show["axes"].items(), key=lambda kv: -kv[1]["score"]
+    )[:12]
 
     return show
 

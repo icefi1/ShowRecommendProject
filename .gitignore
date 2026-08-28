@@ -15,3 +15,7 @@ labelling/batch.txt
 training/model.joblib
 training/predictions.csv
 training/report.md
+
+app/crowd.db
+app/crowd.db-wal
+app/crowd.db-shm

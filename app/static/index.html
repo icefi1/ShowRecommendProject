@@ -136,6 +136,22 @@
     background: var(--panel-2); border: 1px solid var(--line); color: var(--muted);
   }
   .note { font-size: 12px; color: var(--muted); margin-top: 6px; line-height: 1.45; }
+
+  /* --- voting ------------------------------------------------------------ */
+  .vbar { display: grid; grid-template-columns: 118px 1fr 40px 92px 62px; gap: 9px;
+    align-items: center; font-size: 12px; padding: 3px 0; }
+  .votes { display: flex; gap: 3px; }
+  .vote {
+    width: 27px; height: 22px; padding: 0; cursor: pointer; font-size: 12px;
+    background: var(--panel-2); border: 1px solid var(--line); color: var(--muted);
+    border-radius: 4px; line-height: 1;
+  }
+  .vote:hover { color: var(--text); border-color: var(--accent); }
+  .vote[aria-pressed="true"] { background: var(--accent); color: #12131a; border-color: var(--accent); font-weight: 700; }
+  .vote.down[aria-pressed="true"] { background: #f7768e; border-color: #f7768e; }
+  .vote.neutral[aria-pressed="true"] { background: var(--good); border-color: var(--good); }
+  .tally { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .tally .drift { color: var(--accent); }
   .sheet-actions { margin-top: 20px; display: flex; gap: 8px; }
   .btn {
     padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px;
@@ -389,6 +405,48 @@ $("#results").addEventListener("click", (e) => {
   if (card) openDetail(parseInt(card.dataset.show, 10));
 });
 
+// An anonymous per-browser id, so a person's vote can be replaced rather than
+// stacked, without accounts or any personal data. It is trivially spoofable -
+// a real deployment needs real accounts before these numbers mean anything,
+// and that limitation belongs in the writeup rather than hidden here.
+function voterId() {
+  let id = null;
+  try { id = localStorage.getItem("voter"); } catch (e) { /* private mode */ }
+  if (!id) {
+    id = "anon-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+    try { localStorage.setItem("voter", id); } catch (e) { /* not fatal */ }
+  }
+  return id;
+}
+const VOTER = voterId();
+
+let currentShow = null;
+
+function voteRow(axis, st) {
+  const pct = Math.round(st.score * 100);
+  const pressed = (d) => st.your_vote === d ? "true" : "false";
+  // Drift is how far the crowd has moved the model. Shown only once it exists,
+  // so an unvoted axis stays visually quiet.
+  // Drift below half a display-unit rounds to "0.00" or, worse, "-0.00".
+  // Showing nothing is more honest than showing a signed zero.
+  const showDrift = Math.abs(st.drift) >= 0.005;
+  const tally = st.n_votes
+    ? `${st.n_votes} vote${st.n_votes === 1 ? "" : "s"}`
+      + (showDrift ? ` <span class="drift">${st.drift > 0 ? "+" : "−"}${Math.abs(st.drift).toFixed(2)}</span>` : "")
+    : "";
+  return `<div class="vbar" data-axis="${axis}">
+    <span>${axis.replace(/_/g, " ")}</span>
+    <span class="track"><span class="fill" style="width:${pct}%"></span></span>
+    <span class="num">${st.score.toFixed(2)}</span>
+    <span class="votes">
+      <button class="vote up"      data-dir="up"      aria-pressed="${pressed("up")}"      title="Should be higher">&#9650;</button>
+      <button class="vote neutral" data-dir="neutral" aria-pressed="${pressed("neutral")}" title="This value is right">&#9679;</button>
+      <button class="vote down"    data-dir="down"    aria-pressed="${pressed("down")}"    title="Should be lower">&#9660;</button>
+    </span>
+    <span class="tally">${tally}</span>
+  </div>`;
+}
+
 function bar(label, value, measured) {
   const pct = Math.round(value * 100);
   return `<div class="bar">
@@ -399,7 +457,8 @@ function bar(label, value, measured) {
 }
 
 async function openDetail(id) {
-  const s = await (await fetch(`/api/show/${id}`)).json();
+  currentShow = id;
+  const s = await (await fetch(`/api/show/${id}?voter=${encodeURIComponent(VOTER)}`)).json();
 
   const poster = s.poster
     ? `<img src="https://image.tmdb.org/t/p/w185${s.poster}" alt="">`
@@ -414,7 +473,7 @@ async function openDetail(id) {
     .map(([k, v]) => bar(k, v, true)).join("");
 
   const predicted = s.has_model
-    ? s.predicted_top.map(([k, v]) => bar(k.replace(/_/g, " "), v, false)).join("")
+    ? s.axes_top.map(([axis, st]) => voteRow(axis, st)).join("")
     : `<div class="note">No trained model on disk — run training/train_model.py.</div>`;
 
   $("#sheet").innerHTML = `
@@ -429,11 +488,16 @@ async function openDetail(id) {
     </div>
     <p class="overview">${s.overview || "No synopsis available."}</p>
 
-    <h4>Predicted axes — trained model</h4>
-    <div class="bars">${predicted}</div>
-    <div class="note">Predicted from text by a model trained on hand-labelled shows.
-      Values are compressed toward the middle at this training-set size, so read
-      the ordering rather than the absolute numbers. These do not affect ranking yet.</div>
+    <h4>Does this describe the show? — vote per axis</h4>
+    <div class="bars" id="vote-bars">${predicted}</div>
+    <div class="note">
+      <b>▲ higher · ● this is right · ▼ lower.</b> The question is whether the word
+      <em>describes</em> the show — not whether the show is good. Your vote replaces
+      any earlier one on the same axis.<br>
+      Scores start from the trained model and votes update it as evidence, weighted
+      against how many votes that axis already has. Three up-votes nudge; twenty move
+      it a long way. With no votes you see the model's own prediction.
+    </div>
 
     <h4>Measured axes — from TMDB and episode data</h4>
     <div class="bars">${structure}</div>
@@ -449,6 +513,30 @@ async function openDetail(id) {
     </div>`;
 
   $("#detail").hidden = false;
+
+  // Votes update one row in place rather than re-rendering the panel, so the
+  // page does not jump under the cursor when someone votes several axes.
+  const bars = $("#vote-bars");
+  if (bars) bars.onclick = async (e) => {
+    const btn = e.target.closest("[data-dir]");
+    if (!btn) return;
+    const row = btn.closest("[data-axis]");
+    const axis = row.dataset.axis;
+    const shown = parseFloat(row.querySelector(".num").textContent);
+
+    const res = await fetch("/api/vote", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        show_id: currentShow, axis, direction: btn.dataset.dir,
+        score_shown: shown, voter: VOTER,
+      }),
+    });
+    if (!res.ok) return;
+    const { state } = await res.json();
+    row.outerHTML = voteRow(axis, state);
+  };
+
   $("#close-detail").onclick = closeDetail;
   $("#close-detail-2").onclick = closeDetail;
   $("#find-similar").onclick = () => {
