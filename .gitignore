@@ -9,3 +9,16 @@ episodes.json
 episode_features.csv
 app/feature_space.npz
 app/feature_space.json
+
+# Labelling and training outputs
+labelling/batch.txt
+training/model.joblib
+training/predictions.csv
+training/report.md
+
+app/crowd.db
+app/crowd.db-wal
+app/crowd.db-shm
+app/accounts.db
+app/accounts.db-wal
+app/accounts.db-shm

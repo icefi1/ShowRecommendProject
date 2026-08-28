@@ -23,9 +23,32 @@
     font: 15px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif;
   }
   header {
-    padding: 20px 28px 16px;
-    border-bottom: 1px solid var(--line);
+    padding: 16px 28px; border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
   }
+  #account { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  #account .who { color: var(--muted); }
+  #account .who b { color: var(--text); }
+  .libtabs { display: flex; gap: 4px; }
+  .libtab {
+    padding: 6px 11px; border-radius: 20px; cursor: pointer; font-size: 12px;
+    background: var(--panel-2); border: 1px solid var(--line); color: var(--muted);
+  }
+  .libtab[aria-selected="true"] { background: var(--accent); color: #12131a; border-color: var(--accent); font-weight: 600; }
+  .status-row { display: flex; gap: 6px; margin-top: 14px; flex-wrap: wrap; }
+  .status {
+    padding: 6px 13px; border-radius: 20px; cursor: pointer; font-size: 13px;
+    background: var(--panel-2); border: 1px solid var(--line); color: var(--muted);
+  }
+  .status[aria-pressed="true"] { background: var(--good); color: #12131a; border-color: var(--good); font-weight: 600; }
+  textarea {
+    width: 100%; min-height: 90px; padding: 10px 12px; background: var(--panel-2);
+    color: var(--text); border: 1px solid var(--line); border-radius: 8px;
+    font: inherit; font-size: 14px; resize: vertical;
+  }
+  textarea:focus { outline: none; border-color: var(--accent); }
+  .review { padding: 12px 0; border-top: 1px solid var(--line); font-size: 14px; }
+  .review .by { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
   h1 { margin: 0; font-size: 19px; font-weight: 600; letter-spacing: -0.01em; }
   header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
   .layout { display: grid; grid-template-columns: 320px 1fr; min-height: calc(100vh - 74px); }
@@ -92,15 +115,94 @@
   .score .big { font-size: 17px; font-weight: 600; color: var(--good); }
   .score .parts { font-size: 11px; color: var(--muted); margin-top: 4px; line-height: 1.35; }
 
+  .card { cursor: pointer; transition: border-color .12s, background .12s; }
+  .card:hover { border-color: var(--accent); background: var(--panel-2); }
+
   .empty { color: var(--muted); padding: 40px 0; text-align: center; }
+
+  /* --- detail panel ------------------------------------------------------ */
+  .overlay {
+    position: fixed; inset: 0; background: rgba(8,9,13,.72);
+    display: flex; justify-content: center; align-items: flex-start;
+    padding: 40px 20px; overflow-y: auto; z-index: 50;
+  }
+  .overlay[hidden] { display: none; }
+  .sheet {
+    width: min(760px, 100%); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 12px; padding: 22px;
+  }
+  .sheet-head { display: grid; grid-template-columns: 92px 1fr auto; gap: 16px; }
+  .sheet-head img { width: 92px; border-radius: 6px; background: var(--panel-2); }
+  .sheet h2 { margin: 0 0 3px; font-size: 21px; }
+  .sheet .sub { color: var(--muted); font-size: 13px; }
+  .sheet .overview { margin: 14px 0 0; font-size: 14px; color: #c8cddd; }
+  .close {
+    background: var(--panel-2); border: 1px solid var(--line); color: var(--muted);
+    border-radius: 6px; width: 30px; height: 30px; cursor: pointer; font-size: 16px;
+  }
+  .close:hover { color: var(--text); border-color: var(--accent); }
+
+  .sheet h4 {
+    margin: 20px 0 8px; font-size: 11px; text-transform: uppercase;
+    letter-spacing: .07em; color: var(--muted); font-weight: 600;
+  }
+  .bars { display: grid; gap: 5px; }
+  .bar { display: grid; grid-template-columns: 132px 1fr 38px; gap: 9px; align-items: center; font-size: 12px; }
+  .bar .track { height: 7px; background: var(--panel-2); border-radius: 4px; overflow: hidden; }
+  .bar .fill { height: 100%; background: var(--accent); border-radius: 4px; }
+  .bar .fill.measured { background: var(--good); }
+  .bar .num { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 5px; }
+  .chip {
+    padding: 3px 9px; font-size: 12px; border-radius: 20px;
+    background: var(--panel-2); border: 1px solid var(--line); color: var(--muted);
+  }
+  /* Age certificate. Immutable - awarded by a classification body, never
+     predicted and never voted on. */
+  .cert {
+    display: inline-block; padding: 0 5px; margin-right: 6px; border-radius: 3px;
+    font-size: 11px; font-weight: 700; letter-spacing: .02em;
+    border: 1px solid var(--muted); color: var(--muted);
+  }
+  .note { font-size: 12px; color: var(--muted); margin-top: 6px; line-height: 1.45; }
+
+  /* --- voting ------------------------------------------------------------ */
+  .vbar { display: grid; grid-template-columns: 118px 1fr 40px 92px 62px; gap: 9px;
+    align-items: center; font-size: 12px; padding: 3px 0; }
+  .votes { display: flex; gap: 3px; }
+  .vote {
+    width: 27px; height: 22px; padding: 0; cursor: pointer; font-size: 12px;
+    background: var(--panel-2); border: 1px solid var(--line); color: var(--muted);
+    border-radius: 4px; line-height: 1;
+  }
+  .vote:hover { color: var(--text); border-color: var(--accent); }
+  .vote[aria-pressed="true"] { background: var(--accent); color: #12131a; border-color: var(--accent); font-weight: 700; }
+  .vote.down[aria-pressed="true"] { background: #f7768e; border-color: #f7768e; }
+  .vote.neutral[aria-pressed="true"] { background: var(--good); border-color: var(--good); }
+  .tally { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .tally .drift { color: var(--accent); }
+  /* Facts are dimmed so the eye goes to the axes that are actually open. */
+  .vbar.fact { opacity: .68; }
+  .vbar.fact .fill { background: var(--muted); }
+  .sourced { font-size: 11px; color: var(--muted); text-align: center; }
+  .sheet-actions { margin-top: 20px; display: flex; gap: 8px; }
+  .btn {
+    padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px;
+    background: var(--accent); color: #12131a; border: 0; font-weight: 600;
+  }
+  .btn.ghost { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); font-weight: 400; }
   footer { padding: 14px 28px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
 </style>
 </head>
 <body>
 
 <header>
-  <h1>Show Recommender</h1>
-  <p>Search a title or describe what you want. Every result explains itself.</p>
+  <div>
+    <h1>Show Recommender</h1>
+    <p>Search a title or describe what you want. Every result explains itself.</p>
+  </div>
+  <nav id="account"></nav>
 </header>
 
 <div class="layout">
@@ -133,6 +235,8 @@
     <div id="results"><div class="empty">Pick a show, or switch to preference mode.</div></div>
   </main>
 </div>
+
+<div class="overlay" id="detail" hidden><div class="sheet" id="sheet"></div></div>
 
 <footer>This product uses the TMDB API but is not endorsed or certified by TMDB.</footer>
 
@@ -297,27 +401,317 @@ function render(data, showQuery) {
     return;
   }
 
-  $("#results").innerHTML = data.results.map((r) => {
-    const poster = r.poster
-      ? `<img src="https://image.tmdb.org/t/p/w92${r.poster}" alt="" loading="lazy">`
-      : `<div style="width:56px;height:84px;background:var(--panel-2);border-radius:4px"></div>`;
-    const parts = Object.entries(r.block_scores)
-      .map(([k, v]) => `${k[0]}${v.toFixed(2)}`).join(" · ");
-    return `
-      <article class="card">
-        ${poster}
-        <div>
-          <h3>${r.name}</h3>
-          <div class="sub">${r.year} · ${r.genres.join(", ") || "—"} · ${r.episodes} eps · ★ ${r.rating}</div>
-          <div class="why">${r.explanation || r.overview.slice(0, 120) + "…"}</div>
-        </div>
-        <div class="score">
-          <div class="big">${(r.score * 100).toFixed(0)}</div>
-          <div class="parts">${parts}</div>
-        </div>
-      </article>`;
-  }).join("");
+  // One renderer for search results and library listings alike. They had
+  // drifted apart, and a change made to one silently missed the other.
+  $("#results").innerHTML = data.results.map(showCard).join("");
 }
+
+// --- detail panel -----------------------------------------------------------
+
+// Friendlier wording for the measured structure axes, which are stored as
+// percentile ranks across the catalogue rather than raw values.
+const STRUCTURE_LABELS = {
+  episode_count: "Episode count", season_count: "Seasons",
+  episode_length: "Episode length", maturity: "Maturity",
+  audience_rating: "Audience rating", is_miniseries: "Miniseries",
+  rating_stdev: "Episode variability", slow_burn_slope: "Slow burn",
+  finale_delta: "Finale-driven", vote_peak_ratio: "Standout episodes",
+  guest_star_mean: "Ensemble size", entity_density: "Names to track",
+  runtime_stdev: "Runtime variation",
+};
+
+$("#results").addEventListener("click", (e) => {
+  const card = e.target.closest("[data-show]");
+  if (card) openDetail(parseInt(card.dataset.show, 10));
+});
+
+// Identity comes from the httpOnly session cookie, which this script cannot
+// read and does not need to. The server resolves the voter from the request.
+let ME = null;
+
+let currentShow = null;
+
+function voteRow(axis, st) {
+  const pct = Math.round(st.score * 100);
+  const pressed = (d) => st.your_vote === d ? "true" : "false";
+  // Drift is how far the crowd has moved the model. Shown only once it exists,
+  // so an unvoted axis stays visually quiet.
+  // Drift below half a display-unit rounds to "0.00" or, worse, "-0.00".
+  // Showing nothing is more honest than showing a signed zero.
+  const showDrift = Math.abs(st.drift) >= 0.005;
+  const tally = st.n_votes
+    ? `${st.n_votes} vote${st.n_votes === 1 ? "" : "s"}`
+      + (showDrift ? ` <span class="drift">${st.drift > 0 ? "+" : "−"}${Math.abs(st.drift).toFixed(2)}</span>` : "")
+    : "";
+  // A fact is not up for a vote. TMDB settles whether a show is animated, so
+  // offering buttons there would invite disagreement about a closed question -
+  // and any vote cast would be refused by the server anyway.
+  const controls = st.votable
+    ? `<span class="votes">
+        <button class="vote up"      data-dir="up"      aria-pressed="${pressed("up")}"      title="Should be higher">&#9650;</button>
+        <button class="vote neutral" data-dir="neutral" aria-pressed="${pressed("neutral")}" title="This value is right">&#9679;</button>
+        <button class="vote down"    data-dir="down"    aria-pressed="${pressed("down")}"    title="Should be lower">&#9660;</button>
+      </span>`
+    : `<span class="sourced" title="Set by the catalogue, not by voting">from TMDB</span>`;
+
+  return `<div class="vbar${st.votable ? "" : " fact"}" data-axis="${axis}">
+    <span>${axis.replace(/_/g, " ")}</span>
+    <span class="track"><span class="fill" style="width:${pct}%"></span></span>
+    <span class="num">${st.score.toFixed(2)}</span>
+    ${controls}
+    <span class="tally">${st.votable ? tally : ""}</span>
+  </div>`;
+}
+
+function bar(label, value, measured) {
+  const pct = Math.round(value * 100);
+  return `<div class="bar">
+    <span>${label}</span>
+    <span class="track"><span class="fill${measured ? " measured" : ""}" style="width:${pct}%"></span></span>
+    <span class="num">${value.toFixed(2)}</span>
+  </div>`;
+}
+
+async function openDetail(id) {
+  currentShow = id;
+  const s = await (await fetch(`/api/show/${id}`)).json();
+
+  const poster = s.poster
+    ? `<img src="https://image.tmdb.org/t/p/w185${s.poster}" alt="">`
+    : `<div style="width:92px;height:138px;background:var(--panel-2);border-radius:6px"></div>`;
+
+  // Measured axes come from TMDB fields and episode data; predicted axes come
+  // from the trained model. They are shown separately and coloured
+  // differently, because they carry very different confidence.
+  const structure = Object.entries(s.structure)
+    .map(([k, v]) => [STRUCTURE_LABELS[k] || k, v])
+    .sort((a, b) => b[1] - a[1])
+    .map(([k, v]) => bar(k, v, true)).join("");
+
+  const predicted = s.has_model
+    ? s.axes_top.map(([axis, st]) => voteRow(axis, st)).join("")
+    : `<div class="note">No trained model on disk — run training/train_model.py.</div>`;
+  const facts = (s.axes_facts || []).map(([axis, st]) => voteRow(axis, st)).join("");
+
+  $("#sheet").innerHTML = `
+    <div class="sheet-head">
+      ${poster}
+      <div>
+        <h2>${s.name}</h2>
+        <div class="sub">${s.certificate ? `<span class="cert">${esc(s.certificate)}</span>` : ""}${s.year} · ${s.genres.join(", ") || "—"} · ${s.seasons} seasons,
+          ${s.episodes} episodes · ★ ${s.rating}</div>
+      </div>
+      <button class="close" id="close-detail" aria-label="Close">&times;</button>
+    </div>
+    <p class="overview">${s.overview || "No synopsis available."}</p>
+
+    <h4>Does this describe the show? — vote per axis</h4>
+    <div class="bars" id="vote-bars">${predicted}</div>
+
+    <h4>From the catalogue — not open to voting</h4>
+    <div class="bars">${facts}</div>
+    <div class="note">Genres and the age certificate come from TMDB and the
+      classification body. A show is animated or it isn't, so these are looked up
+      rather than polled — and the certificate also demotes results rated far from
+      what you asked for.</div>
+    <div class="note">
+      <b>▲ higher · ● this is right · ▼ lower.</b> The question is whether the word
+      <em>describes</em> the show — not whether the show is good. Your vote replaces
+      any earlier one on the same axis.<br>
+      Greyed axes come from TMDB and aren't open to voting: a show is animated or
+      it isn't, so that's a fact to look up rather than an opinion to poll.<br>
+      Scores start from the trained model and votes update it as evidence, weighted
+      against how many votes that axis already has. Three up-votes nudge; twenty move
+      it a long way. With no votes you see the model's own prediction.
+    </div>
+
+    <h4>Measured axes — from TMDB and episode data</h4>
+    <div class="bars">${structure}</div>
+    <div class="note">Percentile ranks across the 500-show catalogue. 0.90 means
+      higher than 90% of the catalogue, not an absolute score.</div>
+
+    <h4>Your library</h4>
+    <div class="status-row" id="status-row">
+      <button class="status" data-status="watchlist">Watchlist</button>
+      <button class="status" data-status="watching">Watching</button>
+      <button class="status" data-status="watched">Watched</button>
+    </div>
+
+    <h4>Your review</h4>
+    <textarea id="review-box" placeholder="What was it actually like to watch? Was it tense, slow, funny, frightening?"></textarea>
+    <div class="sheet-actions" style="margin-top:8px">
+      <button class="btn" id="save-review">Save review</button>
+      <span class="note" id="review-msg" style="align-self:center;margin:0"></span>
+    </div>
+    <div class="note">Reviews are the text the scoring model learns from — a synopsis
+      can say a house is haunted, only a viewer can say it made them jump.</div>
+    <div id="review-list"></div>
+
+    <h4>Most distinctive keywords</h4>
+    <div class="chips">${s.top_keywords.map((k) => `<span class="chip">${k}</span>`).join("") || "—"}</div>
+
+    <div class="sheet-actions">
+      <button class="btn" id="find-similar">Find shows like this</button>
+      <button class="btn ghost" id="close-detail-2">Close</button>
+    </div>`;
+
+  $("#detail").hidden = false;
+
+  // Votes update one row in place rather than re-rendering the panel, so the
+  // page does not jump under the cursor when someone votes several axes.
+  const bars = $("#vote-bars");
+  if (bars) bars.onclick = async (e) => {
+    const btn = e.target.closest("[data-dir]");
+    if (!btn) return;
+    const row = btn.closest("[data-axis]");
+    const axis = row.dataset.axis;
+    const shown = parseFloat(row.querySelector(".num").textContent);
+
+    const res = await fetch("/api/vote", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        show_id: currentShow, axis, direction: btn.dataset.dir,
+        score_shown: shown,
+      }),
+    });
+    if (res.status === 401) { location.href = "/"; return; }
+    if (!res.ok) return;
+    const { state } = await res.json();
+    row.outerHTML = voteRow(axis, state);
+  };
+
+  // --- library status -------------------------------------------------------
+  const row = $("#status-row");
+  for (const b of row.querySelectorAll("[data-status]")) {
+    b.setAttribute("aria-pressed", String(s.library_status === b.dataset.status));
+  }
+  row.onclick = async (e) => {
+    const b = e.target.closest("[data-status]");
+    if (!b) return;
+    // Clicking the active status clears it, so a show can be removed without a
+    // separate delete control.
+    const on = b.getAttribute("aria-pressed") === "true";
+    const res = await fetch("/api/library", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ show_id: currentShow, status: on ? null : b.dataset.status }),
+    });
+    if (res.status === 401) { location.href = "/"; return; }
+    for (const other of row.querySelectorAll("[data-status]")) {
+      other.setAttribute("aria-pressed", String(!on && other === b));
+    }
+  };
+
+  // --- review ---------------------------------------------------------------
+  $("#review-box").value = s.my_review || "";
+  renderReviews(s.reviews);
+  $("#save-review").onclick = async () => {
+    const msg = $("#review-msg");
+    msg.textContent = "";
+    const res = await fetch("/api/review", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ show_id: currentShow, body: $("#review-box").value }),
+    });
+    if (res.status === 401) { location.href = "/"; return; }
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) { msg.textContent = body.detail || "Could not save."; return; }
+    msg.textContent = "Saved.";
+    renderReviews(body.reviews);
+  };
+
+  $("#close-detail").onclick = closeDetail;
+  $("#close-detail-2").onclick = closeDetail;
+  $("#find-similar").onclick = () => {
+    closeDetail();
+    switchMode("show");
+    pickShow(id);
+  };
+}
+
+function closeDetail() { $("#detail").hidden = true; }
+
+// Escape user text before putting it in the DOM. Reviews are written by other
+// people, so inserting them as HTML would be a stored-XSS hole.
+function esc(t) {
+  return String(t).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function renderReviews(reviews) {
+  const el = $("#review-list");
+  if (!el) return;
+  el.innerHTML = (reviews || []).map((r) => `
+    <div class="review">
+      <div class="by">${esc(r.username)} · ${esc((r.created_at || "").slice(0, 10))}</div>
+      ${esc(r.body)}
+    </div>`).join("");
+}
+
+// --- account bar ------------------------------------------------------------
+async function loadAccount() {
+  const { user } = await (await fetch("/api/me")).json();
+  ME = user;
+  const el = $("#account");
+  if (!user) {
+    el.innerHTML = `<a class="btn" href="/">Sign in</a>`;
+    return;
+  }
+  el.innerHTML = `
+    <span class="who">Signed in as <b>${esc(user.username)}</b></span>
+    <span class="libtabs">
+      <button class="libtab" data-lib="watchlist">Watchlist</button>
+      <button class="libtab" data-lib="watched">Watched</button>
+      <button class="libtab" data-lib="history">History</button>
+    </span>
+    <button class="btn ghost" id="logout">Log out</button>`;
+
+  $("#logout").onclick = async () => {
+    await fetch("/api/logout", { method: "POST" });
+    location.href = "/";
+  };
+
+  el.querySelector(".libtabs").onclick = async (e) => {
+    const b = e.target.closest("[data-lib]");
+    if (!b) return;
+    const which = b.dataset.lib;
+    const url = which === "history" ? "/api/history" : `/api/library?status=${which}`;
+    const data = await (await fetch(url)).json();
+    const rows = data.rows.map((r) => ({ ...r.show, score: 0, block_scores: {}, explanation: "" }));
+    $("#meta").innerHTML = `${rows.length} in <b>${which}</b>`;
+    $("#results").innerHTML = rows.length
+      ? rows.map(showCard).join("")
+      : `<div class="empty">Nothing in ${which} yet.</div>`;
+  };
+}
+
+// One card renderer, used by both search results and library listings.
+function showCard(r) {
+  const poster = r.poster
+    ? `<img src="https://image.tmdb.org/t/p/w92${r.poster}" alt="" loading="lazy">`
+    : `<div style="width:56px;height:84px;background:var(--panel-2);border-radius:4px"></div>`;
+  const parts = Object.entries(r.block_scores || {})
+    .map(([k, v]) => `${k[0]}${v.toFixed(2)}`).join(" · ");
+  return `
+    <article class="card" data-show="${r.id}">
+      ${poster}
+      <div>
+        <h3>${esc(r.name)}</h3>
+        <div class="sub">${r.certificate ? `<span class="cert">${esc(r.certificate)}</span>` : ""}${esc(r.year)} · ${esc((r.genres || []).join(", ") || "—")} · ${r.episodes} eps · ★ ${r.rating}</div>
+        <div class="why">${esc(r.explanation || (r.overview || "").slice(0, 120))}</div>
+      </div>
+      <div class="score">
+        ${r.score ? `<div class="big">${(r.score * 100).toFixed(0)}</div><div class="parts">${parts}</div>` : ""}
+      </div>
+    </article>`;
+}
+
+loadAccount();
+
+// Click the backdrop or press Escape to dismiss - both are expected.
+$("#detail").onclick = (e) => { if (e.target.id === "detail") closeDetail(); };
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("#detail").hidden) closeDetail();
+});
 
 // --- tabs -------------------------------------------------------------------
 
