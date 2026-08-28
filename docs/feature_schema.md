@@ -358,3 +358,71 @@ One robustness note: the reveal animation initially left every section at
 blank page whenever scripting was slow, blocked, or the tab was not
 compositing. Content is now visible by default, and hidden only once an inline
 script confirms scripting is alive to put it back.
+
+---
+
+# v0.7 — facts are not opinions
+
+## The problem
+
+Every predicted axis was votable, including `animation`. A show is animated or
+it is not; polling that invites disagreement about a settled question, and the
+model was *predicting* it as a continuous score, so an obviously animated show
+could come back at 0.6.
+
+## The rule
+
+**If a catalogue source asserts it, it is a fact and the source wins. If no
+source asserts it, it is a judgement — the model predicts and the crowd
+corrects.**
+
+| Kind | Axes | Behaviour |
+|---|---|---|
+| Fact, binary | `animation`, `documentary`, `reality` | Written as 0 or 1 from TMDB. "40% animated" is not a thing. |
+| Fact, degree | `comedy`, `drama`, `crime`, `mystery`, `action` | TMDB decides which side of 0.5; the model supplies the degree within that half. Membership is a fact, emphasis is not. |
+| Judgement | the other 29, including `horror`, `thriller`, `romance`, `historical` | Model predicts, crowd votes. |
+
+The rule lands exactly where the project's argument does. TMDB has no Horror,
+Thriller, Romance or History genre, so those four have no authority to defer to
+— they are precisely the axes worth voting on. `sci_fi` and `fantasy` stay
+judgements too: TMDB conflates them into one tag, so it says at least one
+applies but never which.
+
+Votes on fact axes are refused with a 400 rather than silently dropped, and a
+schema assertion fails the build if any of the four unsourced genres is ever
+moved into the fact set.
+
+**Trade-off:** if TMDB is wrong about a genre, users cannot correct it here.
+That is the price of treating the source as authoritative; the remedy is to add
+or fix sources, not to let votes overrule facts.
+
+## Age certificates now shape ranking
+
+`maturity` was already one of 13 dimensions in the structure block — but that
+block carries 0.20 of the total weight, so it contributed about **1.5%** of a
+score. Nowhere near enough to stop a U-rated cartoon ranking against an 18.
+
+It is now applied separately, as a multiplier on the finished score:
+
+    score *= 1 - 0.5 * |maturity_query - maturity_result|
+
+The widest gap (U against 18) halves a score; one step (15 against 12) costs
+about 15%. That demotes rather than excludes, which is the intent.
+
+**Coverage matters more than the formula.** GB certificates cover only 69% of
+the catalogue, and an unrated show defaults to mid-scale and then ranks against
+everything — Teen Titans Go! had no GB rating and was pulling 15-rated shows
+into its results. Falling back to US TV ratings takes coverage to **94%**.
+
+| Query | Before | After |
+|---|---|---|
+| Teen Titans Go! (TV-PG) | 15-rated *Titans* at #3 | PG, TV-G, PG — *Titans* demoted |
+| Sesame Street (U) | mixed | TV-Y, TV-Y, U |
+| Breaking Bad (18) | unrated *El Chapo* penalised to #7 | TV-MA *El Chapo* back at #1 |
+
+That last row is the fallback proving itself: El Chapo was being punished for
+missing data rather than for being unsuitable.
+
+`NR` is deliberately unmapped — "not rated" is missing data, not a rating, and
+giving it a number would invent information. 6% of the catalogue remains
+unrated and sits mid-scale.

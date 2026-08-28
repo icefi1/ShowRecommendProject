@@ -30,6 +30,7 @@ from app.accounts import AccountStore
 from app.crowd import CrowdStore
 from app.crowd import fuse as crowd_fuse
 from app.similarity import DEFAULT_WEIGHTS, FeatureSpace
+from labelling.schema import BINARY_AXES, FACT_AXES, TMDB_GENRE_SOURCE, VOTABLE_AXES
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -87,6 +88,46 @@ def load_predicted_axes():
 
 
 PREDICTED, PREDICTED_AXES = load_predicted_axes()
+
+
+def apply_facts(show_id, predicted):
+    """
+    Let the catalogue overrule the model on axes it actually settles.
+
+    A show is animated or it is not, and a model that returns 0.6 for an
+    obviously animated show is guessing at something already known. Where TMDB
+    asserts a genre, TMDB wins:
+
+      binary axes (animation, documentary, reality)
+        Written as 0 or 1. "40% animated" is not a thing.
+
+      other sourced axes (comedy, drama, crime, mystery, action)
+        TMDB decides which side of 0.5 the show sits on - tagged means it
+        applies, untagged means at most incidental - and the model's prediction
+        supplies the degree within that half. Membership is a fact; emphasis is
+        still a matter of degree.
+
+    Axes TMDB has no genre for - horror, thriller, romance, historical - are
+    untouched. They are judgements, and they are the ones worth voting on.
+    """
+    index = space.index_by_id.get(show_id)
+    if index is None or not predicted:
+        return predicted
+
+    tmdb_genres = set(space.catalogue[index].get("genres", []))
+    out = dict(predicted)
+
+    for axis, genre in TMDB_GENRE_SOURCE.items():
+        if axis not in out:
+            continue
+        tagged = genre in tmdb_genres
+        if axis in BINARY_AXES:
+            out[axis] = 1.0 if tagged else 0.0
+        elif tagged:
+            out[axis] = max(out[axis], 0.5)
+        else:
+            out[axis] = min(out[axis], 0.5)
+    return out
 
 # Vote storage. SQLite: one file, no server, standard library - the right size
 # for this, and it keeps the raw votes as research data rather than only a cache.
@@ -256,11 +297,24 @@ def vote(v: Vote, request: Request):
         raise HTTPException(status_code=404, detail="Unknown show id")
     if v.axis not in PREDICTED_AXES:
         raise HTTPException(status_code=400, detail="Unknown axis")
+    if v.axis not in VOTABLE_AXES:
+        # A fact is not up for a vote. Refused rather than silently ignored, so
+        # a client bug surfaces instead of quietly dropping user input.
+        raise HTTPException(
+            status_code=400,
+            detail=f"'{v.axis}' comes from TMDB, so it is not open to voting.",
+        )
 
     voter = f"user:{user['id']}"
     crowd.cast(v.show_id, v.axis, v.direction, v.score_shown, voter)
-    priors = PREDICTED.get(v.show_id, {})
-    return {"axis": v.axis, "state": crowd.state_for_show(v.show_id, priors, voter)[v.axis]}
+    priors = apply_facts(v.show_id, PREDICTED.get(v.show_id, {}))
+
+    state = crowd.state_for_show(v.show_id, priors, voter)[v.axis]
+    # Same shape as the detail endpoint. The client re-renders the row straight
+    # from this, and a missing `votable` would silently strip its own controls.
+    state["votable"] = v.axis in VOTABLE_AXES
+    state["source"] = TMDB_GENRE_SOURCE.get(v.axis)
+    return {"axis": v.axis, "state": state}
 
 
 @app.get("/api/disagreements")
@@ -274,7 +328,7 @@ def disagreements(min_votes: int = 3, limit: int = 40):
     """
     rows = []
     for row in crowd.disagreements(limit=limit, min_votes=min_votes):
-        priors = PREDICTED.get(row["show_id"], {})
+        priors = apply_facts(row["show_id"], PREDICTED.get(row["show_id"], {}))
         prior = priors.get(row["axis"])
         if prior is None:
             continue
@@ -315,7 +369,7 @@ def show_detail(show_id: int, request: Request):
     ranked = sorted(range(len(vocabulary)), key=lambda i: -keyword_row[i])
     show["top_keywords"] = [vocabulary[i] for i in ranked[:12] if keyword_row[i] > 0]
 
-    predicted = PREDICTED.get(show_id, {})
+    predicted = apply_facts(show_id, PREDICTED.get(show_id, {}))
     show["has_model"] = bool(predicted)
 
     # Every axis carries its model prior, its crowd-corrected score, the vote
@@ -337,9 +391,26 @@ def show_detail(show_id: int, request: Request):
 
     # Ranked by the corrected score, so the panel leads with what most
     # describes the show according to model and crowd together.
+    for axis, state in show["axes"].items():
+        state["votable"] = axis in VOTABLE_AXES
+        state["source"] = TMDB_GENRE_SOURCE.get(axis)
+
+    # Two separate lists rather than one ranked mixture. Sorting facts to the
+    # bottom of a single list meant they fell off the end entirely - 29
+    # judgements crowded out all 8 facts - so an obviously animated show never
+    # showed `animation` at all.
     show["axes_top"] = sorted(
-        show["axes"].items(), key=lambda kv: -kv[1]["score"]
+        ((a, s) for a, s in show["axes"].items() if s["votable"]),
+        key=lambda kv: -kv[1]["score"],
     )[:12]
+
+    # Every fact, always, ranked by score. There are only eight and they are
+    # cheap to show; hiding the ones that scored zero would make "not a
+    # documentary" indistinguishable from "we never checked".
+    show["axes_facts"] = sorted(
+        ((a, s) for a, s in show["axes"].items() if not s["votable"]),
+        key=lambda kv: -kv[1]["score"],
+    )
 
     return show
 

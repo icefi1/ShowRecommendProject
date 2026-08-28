@@ -23,6 +23,26 @@ HERE = Path(__file__).resolve().parent
 # Keywords carry the most specific signal about subject matter, so they lead.
 DEFAULT_WEIGHTS = {"genre": 0.25, "keywords": 0.55, "structure": 0.20}
 
+# How hard a certificate mismatch is punished.
+#
+# Age rating is already one of 13 dimensions in the structure block, but that
+# block carries 0.20 of the total weight, so maturity contributes barely 1.5%
+# of a score - nowhere near enough to stop a U-rated cartoon ranking against an
+# 18-rated drama when their keywords happen to align.
+#
+# So it is applied separately, as a multiplier on the finished score:
+#
+#     score *= 1 - MATURITY_PENALTY * |maturity_query - maturity_result|
+#
+# At 0.5, the widest possible gap (U against 18) halves a result's score, and a
+# one-step gap such as 15 against 12 costs about 15%. That demotes rather than
+# excludes, which is the intent: a mismatched certificate should push a show
+# down the list, not remove it from consideration.
+#
+# The value is immutable - it comes from the classification body via TMDB, is
+# never predicted by the model and never open to voting.
+MATURITY_PENALTY = 0.5
+
 # Human phrasing for structure axes, used when explaining a result.
 # (axis, wording when the result is higher, wording when lower)
 STRUCTURE_PHRASING = {
@@ -72,6 +92,11 @@ class FeatureSpace:
         self.block_norms = {
             name: np.linalg.norm(matrix, axis=1) for name, matrix in self.blocks.items()
         }
+
+        # Certificate position per show, pulled out of the structure block so
+        # the penalty is one vector op rather than a lookup per candidate.
+        maturity_col = self.block_labels["structure"].index("maturity")
+        self.maturity = self.blocks["structure"][:, maturity_col].astype(np.float32)
 
     # ------------------------------------------------------------ searching
 
@@ -129,6 +154,7 @@ class FeatureSpace:
         query = {name: matrix[index] for name, matrix in self.blocks.items()}
 
         combined, per_block = self._combine(query, weights)
+        combined = self._apply_maturity(combined, self.maturity[index])
         combined[index] = -1.0  # never recommend the query back to itself
 
         return self._rank(combined, per_block, limit, compare_to=index)
@@ -167,6 +193,8 @@ class FeatureSpace:
         weights = {**weights, "keywords": 0.0}
 
         combined, per_block = self._combine(query, weights)
+        # If the user moved the maturity dial, treat it as the target rating.
+        combined = self._apply_maturity(combined, (structure_targets or {}).get("maturity"))
         return self._rank(combined, per_block, limit, compare_to=None)
 
     # ------------------------------------------------------------- internals
@@ -188,6 +216,19 @@ class FeatureSpace:
             combined /= total
         return combined, per_block
 
+    def _apply_maturity(self, combined, query_maturity):
+        """
+        Demote results whose age rating is far from the query's.
+
+        Multiplicative rather than subtractive, so it scales a score instead of
+        flattening weak matches to zero, and a strong match with a mild
+        certificate gap still outranks a poor match with none.
+        """
+        if query_maturity is None:
+            return combined
+        gap = np.abs(self.maturity - float(query_maturity))
+        return combined * (1.0 - MATURITY_PENALTY * gap)
+
     def _rank(self, combined, per_block, limit, compare_to):
         """Take the top `limit` scores and attach an explanation to each."""
         # argpartition finds the top k without sorting all 500 - the standard
@@ -199,6 +240,7 @@ class FeatureSpace:
         for index in top:
             show = dict(self.catalogue[index])
             show["score"] = round(float(combined[index]), 4)
+            show["maturity_gap"] = None
             show["block_scores"] = {
                 name: round(float(scores[index]), 3) for name, scores in per_block.items()
             }

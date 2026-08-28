@@ -39,6 +39,25 @@ MIN_KEYWORD_SHOWS = 3
 # UK certificates mapped onto a 0-1 "how adult is this" scale.
 CERTIFICATE_SCALE = {"U": 0.0, "PG": 0.2, "12": 0.4, "12A": 0.4, "15": 0.7, "18": 1.0}
 
+# US TV ratings, used when no GB certificate exists. Only 69% of the catalogue
+# carries a GB rating; falling back to US takes coverage to 95%, which matters
+# because an unrated show defaults to mid-scale and then ranks against
+# everything. Teen Titans Go! had no GB certificate and was pulling 15-rated
+# shows into its results.
+#
+# Positioned against the GB scale rather than treated as equivalent - TV-14 has
+# no exact GB counterpart, so it sits between 12 and 15.
+US_CERTIFICATE_SCALE = {
+    "TV-Y": 0.0,     # all children
+    "TV-G": 0.05,    # general audiences
+    "TV-Y7": 0.15,   # 7 and over
+    "TV-PG": 0.30,   # parental guidance
+    "TV-14": 0.60,   # between GB 12 and 15
+    "TV-MA": 1.00,   # mature only, ~18
+    # NR is deliberately absent: "not rated" is missing data, not a rating, and
+    # mapping it to a number would invent information.
+}
+
 
 def percentile_rank(values):
     """
@@ -122,11 +141,36 @@ def build():
     keyword_matrix /= np.where(norms == 0, 1.0, norms)
 
     # ------------------------------------------------------------- structure
-    def certificate(show):
-        for rating in show.get("content_ratings", {}).get("results", []):
+    def certificate_label(show):
+        """
+        The awarded certificate, preferring GB and falling back to US.
+
+        Returns (label, value) or (None, None). GB is preferred because the
+        catalogue is Netflix GB; US fills the 31% of shows GB does not rate.
+        """
+        ratings = show.get("content_ratings", {}).get("results", [])
+
+        for rating in ratings:
             if rating.get("iso_3166_1") == "GB":
-                return CERTIFICATE_SCALE.get(rating.get("rating"), 0.5)
-        return 0.5  # unknown sits mid-scale rather than at an extreme
+                label = rating.get("rating")
+                if label in CERTIFICATE_SCALE:
+                    return label, CERTIFICATE_SCALE[label]
+
+        for rating in ratings:
+            if rating.get("iso_3166_1") == "US":
+                label = rating.get("rating")
+                if label in US_CERTIFICATE_SCALE:
+                    return label, US_CERTIFICATE_SCALE[label]
+
+        return None, None
+
+    def certificate(show):
+        _, value = certificate_label(show)
+        # Unrated sits mid-scale rather than at an extreme, so a missing
+        # certificate neither blocks a show from adult results nor pushes it
+        # into children's ones. It is still the worst case - 5% of the
+        # catalogue - and is worth reducing with another source.
+        return 0.5 if value is None else value
 
     raw_structure = {
         "maturity": [certificate(s) for s in shows],
@@ -183,6 +227,13 @@ def build():
             "episodes": s.get("number_of_episodes") or 0,
             "seasons": s.get("number_of_seasons") or 0,
             "rating": round(s.get("vote_average") or 0, 1),
+            # The awarded GB certificate and its position on a 0-1 scale.
+            # Immutable: it comes from the classification body via TMDB, is
+            # never predicted and never voted on. The similarity engine uses
+            # `maturity` to penalise recommendations far from the query's
+            # rating - see similarity.py.
+            "certificate": certificate_label(s)[0],
+            "maturity": round(certificate(s), 3),
             # TMDB's own similarity, kept as the ground-truth proxy for S9.2
             "tmdb_similar": [x["id"] for x in s.get("similar", {}).get("results", [])],
             "tmdb_recommended": [

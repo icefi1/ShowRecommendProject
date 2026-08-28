@@ -66,11 +66,68 @@ AXES = [
 # Computed from TMDB metadata rather than judged. See module docstring.
 METADATA_AXES = ["episode_length", "commitment", "maturity"]
 
+
+# ---------------------------------------------------------------------------
+# Facts versus judgements
+# ---------------------------------------------------------------------------
+# Not every axis is an opinion. A show is animated or it is not, and asking the
+# crowd to vote on it invites disagreement about a settled question - the vote
+# is noise at best and vandalism at worst.
+#
+# The rule: if a catalogue source asserts it, it is a FACT and the source wins.
+# If no source asserts it, it is a JUDGEMENT - the model predicts it and the
+# crowd corrects it.
+#
+# This maps cleanly onto the gap that motivates the whole project. TMDB's TV
+# taxonomy has 15 genres and no Horror, Thriller, Romance or History, so those
+# four have no authority to defer to and are exactly the axes worth voting on.
+#
+# Trade-off worth stating: if TMDB is wrong about a genre, users cannot correct
+# it here. That is the price of treating the source as authoritative, and the
+# remedy is to add or correct sources rather than to let votes overrule facts.
+
+# Axis -> the TMDB TV genre that settles it.
+TMDB_GENRE_SOURCE = {
+    "comedy": "Comedy",
+    "drama": "Drama",
+    "crime": "Crime",
+    "mystery": "Mystery",
+    "action": "Action & Adventure",
+    "documentary": "Documentary",
+    "reality": "Reality",
+    "animation": "Animation",
+}
+
+# A subset of the above are binary in kind, not merely sourced: they describe
+# the medium or mode rather than the content, so a partial value is meaningless.
+# "40% animated" is not a thing. These are written straight from TMDB as 0 or 1
+# instead of being predicted.
+BINARY_AXES = {"animation", "documentary", "reality"}
+
+# TMDB conflates science fiction and fantasy into one "Sci-Fi & Fantasy" tag, so
+# it tells us at least one applies but never which. The split is therefore a
+# judgement, not a fact, even though a related tag exists.
+CONFLATED_AXES = {"sci_fi", "fantasy"}
+
+
+def axis_kind(name):
+    """'fact' if a catalogue source settles this axis, else 'judgement'."""
+    return "fact" if name in TMDB_GENRE_SOURCE else "judgement"
+
+
 AXIS_NAMES = [name for name, _, _ in AXES]
 BLOCKS = {block for _, block, _ in AXES}
 
 assert len(AXIS_NAMES) == len(set(AXIS_NAMES)), "duplicate axis name in schema"
 assert len(AXES) + len(METADATA_AXES) == 40, "schema should total 40 axes"
+VOTABLE_AXES = [name for name in AXIS_NAMES if axis_kind(name) == "judgement"]
+FACT_AXES = [name for name in AXIS_NAMES if axis_kind(name) == "fact"]
+
+assert set(FACT_AXES) == set(TMDB_GENRE_SOURCE), "fact axes must all have a source"
+assert not (set(VOTABLE_AXES) & set(TMDB_GENRE_SOURCE)), "a sourced axis must not be votable"
+# The four axes TMDB cannot express must remain votable - they are the project's
+# reason to exist, and silently making them facts would gut the contribution.
+assert {"horror", "thriller", "romance", "historical"} <= set(VOTABLE_AXES)
 
 
 def definitions_block():

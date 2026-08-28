@@ -158,6 +158,13 @@
     padding: 3px 9px; font-size: 12px; border-radius: 20px;
     background: var(--panel-2); border: 1px solid var(--line); color: var(--muted);
   }
+  /* Age certificate. Immutable - awarded by a classification body, never
+     predicted and never voted on. */
+  .cert {
+    display: inline-block; padding: 0 5px; margin-right: 6px; border-radius: 3px;
+    font-size: 11px; font-weight: 700; letter-spacing: .02em;
+    border: 1px solid var(--muted); color: var(--muted);
+  }
   .note { font-size: 12px; color: var(--muted); margin-top: 6px; line-height: 1.45; }
 
   /* --- voting ------------------------------------------------------------ */
@@ -175,6 +182,10 @@
   .vote.neutral[aria-pressed="true"] { background: var(--good); border-color: var(--good); }
   .tally { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
   .tally .drift { color: var(--accent); }
+  /* Facts are dimmed so the eye goes to the axes that are actually open. */
+  .vbar.fact { opacity: .68; }
+  .vbar.fact .fill { background: var(--muted); }
+  .sourced { font-size: 11px; color: var(--muted); text-align: center; }
   .sheet-actions { margin-top: 20px; display: flex; gap: 8px; }
   .btn {
     padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px;
@@ -390,26 +401,9 @@ function render(data, showQuery) {
     return;
   }
 
-  $("#results").innerHTML = data.results.map((r) => {
-    const poster = r.poster
-      ? `<img src="https://image.tmdb.org/t/p/w92${r.poster}" alt="" loading="lazy">`
-      : `<div style="width:56px;height:84px;background:var(--panel-2);border-radius:4px"></div>`;
-    const parts = Object.entries(r.block_scores)
-      .map(([k, v]) => `${k[0]}${v.toFixed(2)}`).join(" · ");
-    return `
-      <article class="card" data-show="${r.id}">
-        ${poster}
-        <div>
-          <h3>${r.name}</h3>
-          <div class="sub">${r.year} · ${r.genres.join(", ") || "—"} · ${r.episodes} eps · ★ ${r.rating}</div>
-          <div class="why">${r.explanation || r.overview.slice(0, 120) + "…"}</div>
-        </div>
-        <div class="score">
-          <div class="big">${(r.score * 100).toFixed(0)}</div>
-          <div class="parts">${parts}</div>
-        </div>
-      </article>`;
-  }).join("");
+  // One renderer for search results and library listings alike. They had
+  // drifted apart, and a change made to one silently missed the other.
+  $("#results").innerHTML = data.results.map(showCard).join("");
 }
 
 // --- detail panel -----------------------------------------------------------
@@ -449,16 +443,23 @@ function voteRow(axis, st) {
     ? `${st.n_votes} vote${st.n_votes === 1 ? "" : "s"}`
       + (showDrift ? ` <span class="drift">${st.drift > 0 ? "+" : "−"}${Math.abs(st.drift).toFixed(2)}</span>` : "")
     : "";
-  return `<div class="vbar" data-axis="${axis}">
+  // A fact is not up for a vote. TMDB settles whether a show is animated, so
+  // offering buttons there would invite disagreement about a closed question -
+  // and any vote cast would be refused by the server anyway.
+  const controls = st.votable
+    ? `<span class="votes">
+        <button class="vote up"      data-dir="up"      aria-pressed="${pressed("up")}"      title="Should be higher">&#9650;</button>
+        <button class="vote neutral" data-dir="neutral" aria-pressed="${pressed("neutral")}" title="This value is right">&#9679;</button>
+        <button class="vote down"    data-dir="down"    aria-pressed="${pressed("down")}"    title="Should be lower">&#9660;</button>
+      </span>`
+    : `<span class="sourced" title="Set by the catalogue, not by voting">from TMDB</span>`;
+
+  return `<div class="vbar${st.votable ? "" : " fact"}" data-axis="${axis}">
     <span>${axis.replace(/_/g, " ")}</span>
     <span class="track"><span class="fill" style="width:${pct}%"></span></span>
     <span class="num">${st.score.toFixed(2)}</span>
-    <span class="votes">
-      <button class="vote up"      data-dir="up"      aria-pressed="${pressed("up")}"      title="Should be higher">&#9650;</button>
-      <button class="vote neutral" data-dir="neutral" aria-pressed="${pressed("neutral")}" title="This value is right">&#9679;</button>
-      <button class="vote down"    data-dir="down"    aria-pressed="${pressed("down")}"    title="Should be lower">&#9660;</button>
-    </span>
-    <span class="tally">${tally}</span>
+    ${controls}
+    <span class="tally">${st.votable ? tally : ""}</span>
   </div>`;
 }
 
@@ -490,13 +491,14 @@ async function openDetail(id) {
   const predicted = s.has_model
     ? s.axes_top.map(([axis, st]) => voteRow(axis, st)).join("")
     : `<div class="note">No trained model on disk — run training/train_model.py.</div>`;
+  const facts = (s.axes_facts || []).map(([axis, st]) => voteRow(axis, st)).join("");
 
   $("#sheet").innerHTML = `
     <div class="sheet-head">
       ${poster}
       <div>
         <h2>${s.name}</h2>
-        <div class="sub">${s.year} · ${s.genres.join(", ") || "—"} · ${s.seasons} seasons,
+        <div class="sub">${s.certificate ? `<span class="cert">${esc(s.certificate)}</span>` : ""}${s.year} · ${s.genres.join(", ") || "—"} · ${s.seasons} seasons,
           ${s.episodes} episodes · ★ ${s.rating}</div>
       </div>
       <button class="close" id="close-detail" aria-label="Close">&times;</button>
@@ -505,10 +507,19 @@ async function openDetail(id) {
 
     <h4>Does this describe the show? — vote per axis</h4>
     <div class="bars" id="vote-bars">${predicted}</div>
+
+    <h4>From the catalogue — not open to voting</h4>
+    <div class="bars">${facts}</div>
+    <div class="note">Genres and the age certificate come from TMDB and the
+      classification body. A show is animated or it isn't, so these are looked up
+      rather than polled — and the certificate also demotes results rated far from
+      what you asked for.</div>
     <div class="note">
       <b>▲ higher · ● this is right · ▼ lower.</b> The question is whether the word
       <em>describes</em> the show — not whether the show is good. Your vote replaces
       any earlier one on the same axis.<br>
+      Greyed axes come from TMDB and aren't open to voting: a show is animated or
+      it isn't, so that's a fact to look up rather than an opinion to poll.<br>
       Scores start from the trained model and votes update it as evidence, weighted
       against how many votes that axis already has. Three up-votes nudge; twenty move
       it a long way. With no votes you see the model's own prediction.
@@ -685,7 +696,7 @@ function showCard(r) {
       ${poster}
       <div>
         <h3>${esc(r.name)}</h3>
-        <div class="sub">${esc(r.year)} · ${esc((r.genres || []).join(", ") || "—")} · ${r.episodes} eps · ★ ${r.rating}</div>
+        <div class="sub">${r.certificate ? `<span class="cert">${esc(r.certificate)}</span>` : ""}${esc(r.year)} · ${esc((r.genres || []).join(", ") || "—")} · ${r.episodes} eps · ★ ${r.rating}</div>
         <div class="why">${esc(r.explanation || (r.overview || "").slice(0, 120))}</div>
       </div>
       <div class="score">
