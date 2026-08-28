@@ -1,0 +1,519 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Show Recommender</title>
+<script>
+  // Set before first paint. Without JS the .reveal rule never applies and the
+  // page renders fully visible, so a script failure degrades to a plain page
+  // rather than a blank one.
+  document.documentElement.className += " js";
+</script>
+<style>
+  :root {
+    --bg: #0d0e13;
+    --panel: #16181f;
+    --panel-2: #20232e;
+    --line: #2b2f3d;
+    --text: #f2f4f9;
+    --muted: #9aa0b4;
+    --accent: #7aa2f7;
+    --good: #9ece6a;
+    --warm: #f7a56e;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 17px/1.55 -apple-system, "Segoe UI", Roboto, Helvetica, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* --- top bar ----------------------------------------------------------- */
+  .bar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 clamp(18px, 5vw, 60px); height: 56px;
+    background: rgba(13,14,19,.72); backdrop-filter: saturate(160%) blur(14px);
+    border-bottom: 1px solid transparent; transition: border-color .25s;
+  }
+  .bar.scrolled { border-bottom-color: var(--line); }
+  .brand { font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
+  .bar nav { display: flex; gap: 8px; align-items: center; }
+  .link {
+    background: none; border: 0; color: var(--text); font-size: 14px;
+    padding: 7px 12px; border-radius: 20px; cursor: pointer;
+  }
+  .link:hover { background: var(--panel-2); }
+  .cta {
+    background: var(--accent); color: #0d0e13; border: 0; font-weight: 600;
+    font-size: 14px; padding: 7px 16px; border-radius: 20px; cursor: pointer;
+  }
+  .cta:hover { filter: brightness(1.08); }
+
+  /* --- section scaffolding ----------------------------------------------- */
+  section { padding: clamp(80px, 14vh, 150px) clamp(20px, 6vw, 80px); }
+  .wrap { max-width: 1040px; margin: 0 auto; }
+  .kicker {
+    font-size: 13px; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--accent); font-weight: 600; margin-bottom: 14px;
+  }
+  h1 {
+    font-size: clamp(38px, 7.5vw, 82px); line-height: 1.03;
+    letter-spacing: -.035em; font-weight: 700; margin: 0 0 22px;
+  }
+  h2 {
+    font-size: clamp(28px, 4.6vw, 52px); line-height: 1.08;
+    letter-spacing: -.028em; font-weight: 700; margin: 0 0 18px;
+  }
+  .lede { font-size: clamp(17px, 2.1vw, 22px); color: var(--muted); max-width: 62ch; }
+  .lede strong { color: var(--text); font-weight: 600; }
+
+  /* Progressive reveal - each block fades up as it enters the viewport, so the
+     page is read a section at a time rather than arriving all at once. */
+  .js .reveal { opacity: 0; transform: translateY(26px); transition: opacity .7s ease, transform .7s ease; }
+  .js .reveal.in { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) {
+    .js .reveal { opacity: 1; transform: none; transition: none; }
+    html { scroll-behavior: auto; }
+  }
+
+  /* --- hero -------------------------------------------------------------- */
+  .hero { min-height: 100vh; display: flex; align-items: center; text-align: center;
+          padding-top: 90px; position: relative; overflow: hidden; }
+  .hero .wrap { position: relative; z-index: 2; }
+  .hero .lede { margin: 0 auto; }
+  .glow {
+    position: absolute; inset: -20% -10% auto -10%; height: 70vh; z-index: 1;
+    background: radial-gradient(60% 60% at 50% 40%, rgba(122,162,247,.20), transparent 70%);
+    pointer-events: none;
+  }
+  .quote {
+    margin: 34px auto 0; max-width: 720px; padding: 20px 24px; text-align: left;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    font-size: clamp(16px, 2vw, 20px);
+  }
+  .quote span { color: var(--accent); }
+  .scroll-hint { margin-top: 44px; color: var(--muted); font-size: 13px; }
+
+  /* --- poster strip ------------------------------------------------------ */
+  .strip { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-top: 40px; }
+  .strip img {
+    width: clamp(72px, 9vw, 112px); border-radius: 8px; display: block;
+    box-shadow: 0 10px 30px rgba(0,0,0,.45);
+  }
+
+  /* --- the pinned panel --------------------------------------------------
+     A tall wrapper holds a sticky child. The child stays fixed on screen for
+     the height of the wrapper while the page scrolls past it; the next section
+     has a solid background and a higher stacking order, so it slides up and
+     covers the pinned panel rather than scrolling with it. */
+  .pin-wrap { height: 260vh; position: relative; padding: 0; }
+  .pin {
+    position: sticky; top: 0; height: 100vh;
+    display: flex; align-items: center; justify-content: center;
+    padding: 70px clamp(20px, 6vw, 80px) 0; overflow: hidden;
+  }
+  .pin-inner { max-width: 1040px; width: 100%; text-align: center; }
+  .cover { position: relative; z-index: 10; background: var(--bg); }
+  .cover::before {
+    /* A soft lip so the covering section reads as a sheet sliding over,
+       rather than a hard seam. */
+    content: ""; position: absolute; left: 0; right: 0; top: -60px; height: 60px;
+    background: linear-gradient(to bottom, transparent, var(--bg));
+    pointer-events: none;
+  }
+
+  /* --- axis demo --------------------------------------------------------- */
+  .axes { display: grid; gap: 9px; max-width: 620px; margin: 0 auto; text-align: left; }
+  .ax { display: grid; grid-template-columns: 128px 1fr 44px; gap: 12px; align-items: center; font-size: 14px; }
+  .ax .track { height: 9px; background: var(--panel-2); border-radius: 5px; overflow: hidden; }
+  .ax .fill { height: 100%; border-radius: 5px; background: var(--accent); width: 0; transition: width 1.1s cubic-bezier(.2,.8,.2,1); }
+  .ax.hot .fill { background: var(--warm); }
+  .ax .n { color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
+
+  /* --- feature grid ------------------------------------------------------ */
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin-top: 40px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 24px;
+  }
+  .card h3 { margin: 0 0 8px; font-size: 18px; letter-spacing: -.01em; }
+  .card p { margin: 0; color: var(--muted); font-size: 15px; }
+  .card .icon { font-size: 22px; margin-bottom: 12px; display: block; }
+
+  /* --- compare ----------------------------------------------------------- */
+  .compare { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-top: 36px; }
+  .box { border: 1px solid var(--line); border-radius: 16px; padding: 24px; background: var(--panel); }
+  .box.bad { border-color: #4a2b32; }
+  .box.good { border-color: #2f4a2c; }
+  .box h4 { margin: 0 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tag { font-size: 13px; padding: 4px 10px; border-radius: 20px; background: var(--panel-2); border: 1px solid var(--line); color: var(--muted); }
+  .tag.on { background: var(--accent); color: #0d0e13; border-color: var(--accent); font-weight: 600; }
+  .tag.off { text-decoration: line-through; opacity: .45; }
+
+  .explain {
+    margin-top: 26px; padding: 18px 20px; background: var(--panel); border-radius: 14px;
+    border: 1px solid var(--line); font-size: 15px;
+  }
+  .explain b { color: var(--good); font-weight: 600; }
+
+  /* --- stats ------------------------------------------------------------- */
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-top: 40px; }
+  .stat { text-align: center; padding: 22px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
+  .stat b { display: block; font-size: clamp(26px, 3.4vw, 38px); letter-spacing: -.02em; }
+  .stat span { color: var(--muted); font-size: 13px; }
+
+  /* --- final CTA --------------------------------------------------------- */
+  .final { text-align: center; }
+  .final .cta { font-size: 16px; padding: 13px 30px; border-radius: 26px; }
+  footer { padding: 34px clamp(20px, 6vw, 80px) 50px; border-top: 1px solid var(--line);
+           color: var(--muted); font-size: 13px; text-align: center; }
+
+  /* --- auth modal -------------------------------------------------------- */
+  .overlay {
+    position: fixed; inset: 0; background: rgba(6,7,10,.78); z-index: 200;
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+    backdrop-filter: blur(4px);
+  }
+  .overlay[hidden] { display: none; }
+  .sheet { width: min(400px, 100%); background: var(--panel); border: 1px solid var(--line);
+           border-radius: 18px; padding: 28px; }
+  .sheet h3 { margin: 0 0 4px; font-size: 22px; letter-spacing: -.02em; }
+  .sheet .sub { color: var(--muted); font-size: 14px; margin-bottom: 20px; }
+  .field { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: .07em;
+           color: var(--muted); margin: 14px 0 6px; }
+  .sheet input {
+    width: 100%; padding: 11px 13px; background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 9px; font-size: 15px;
+  }
+  .sheet input:focus { outline: none; border-color: var(--accent); }
+  .sheet .cta { width: 100%; margin-top: 20px; padding: 12px; border-radius: 9px; font-size: 15px; }
+  .swap { margin-top: 14px; text-align: center; font-size: 14px; color: var(--muted); }
+  .swap button { background: none; border: 0; color: var(--accent); cursor: pointer; font-size: 14px; padding: 0; }
+  .err { margin-top: 14px; color: #f7768e; font-size: 14px; min-height: 18px; }
+  .hint { margin-top: 10px; font-size: 12px; color: var(--muted); line-height: 1.45; }
+</style>
+</head>
+<body>
+
+<div class="bar" id="bar">
+  <div class="brand">Show Recommender</div>
+  <nav>
+    <button class="link" id="nav-login">Log in</button>
+    <button class="cta" id="nav-signup">Sign up</button>
+  </nav>
+</div>
+
+<!-- 1 ................................................................. hero -->
+<section class="hero">
+  <div class="glow"></div>
+  <div class="wrap reveal">
+    <h1>Ask for the show<br>you actually want.</h1>
+    <p class="lede">Every show scored across 37 named qualities — so you can ask for
+      more of one thing and less of another, and see exactly why anything was
+      recommended.</p>
+    <div class="quote">
+      “Another horror series with <span>lots of jumpscares</span>,
+      but <span>without the convoluted plot</span>.”
+    </div>
+    <div class="scroll-hint">Scroll to see how ↓</div>
+  </div>
+</section>
+
+<!-- 2 .............................................................. problem -->
+<section>
+  <div class="wrap reveal">
+    <div class="kicker">The problem</div>
+    <h2>Streaming catalogues don’t have the words.</h2>
+    <p class="lede">The source catalogue offers 15 genres for television. Horror isn’t one
+      of them. Neither is romance, thriller, or history.</p>
+
+    <div class="compare">
+      <div class="box bad">
+        <h4>What the catalogue can say</h4>
+        <div class="tags">
+          <span class="tag on">Drama</span><span class="tag on">Mystery</span>
+          <span class="tag on">Sci-Fi &amp; Fantasy</span>
+          <span class="tag off">Horror</span><span class="tag off">Romance</span>
+          <span class="tag off">Thriller</span><span class="tag off">History</span>
+        </div>
+        <p class="lede" style="font-size:15px;margin-top:16px">
+          85 shows in the catalogue are about romance. <strong>None can be labelled
+          “romance.”</strong> The vocabulary simply doesn’t exist.</p>
+      </div>
+      <div class="box good">
+        <h4>What we score instead</h4>
+        <div class="tags">
+          <span class="tag on">horror</span><span class="tag on">creepy</span>
+          <span class="tag on">jumpscares</span><span class="tag on">slow burn</span>
+          <span class="tag on">plot complexity</span><span class="tag on">romance</span>
+          <span class="tag on">bleak</span><span class="tag on">cosy</span>
+          <span class="tag on">campy</span><span class="tag on">+28 more</span>
+        </div>
+        <p class="lede" style="font-size:15px;margin-top:16px">
+          Not labels a show either has or doesn’t. <strong>Scores from 0 to 1</strong>,
+          because “a bit creepy” and “relentlessly creepy” are different requests.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 3 ...................................................... PINNED: the axes -->
+<div class="pin-wrap">
+  <div class="pin">
+    <div class="pin-inner reveal">
+      <div class="kicker">Every show, measured</div>
+      <h2>The Haunting of Hill House</h2>
+      <div class="axes" id="axis-demo">
+        <div class="ax hot"><span>creepy</span><span class="track"><span class="fill" data-w="94"></span></span><span class="n">0.94</span></div>
+        <div class="ax hot"><span>horror</span><span class="track"><span class="fill" data-w="89"></span></span><span class="n">0.89</span></div>
+        <div class="ax hot"><span>slow burn</span><span class="track"><span class="fill" data-w="80"></span></span><span class="n">0.80</span></div>
+        <div class="ax"><span>jumpscares</span><span class="track"><span class="fill" data-w="70"></span></span><span class="n">0.70</span></div>
+        <div class="ax"><span>plot complexity</span><span class="track"><span class="fill" data-w="55"></span></span><span class="n">0.55</span></div>
+        <div class="ax"><span>gore</span><span class="track"><span class="fill" data-w="25"></span></span><span class="n">0.25</span></div>
+        <div class="ax"><span>comedy</span><span class="track"><span class="fill" data-w="2"></span></span><span class="n">0.02</span></div>
+      </div>
+      <p class="lede" style="margin:26px auto 0;text-align:center">
+        Every axis has a written definition. Nothing here is a black box.</p>
+    </div>
+  </div>
+</div>
+
+<!-- 4 ................................................. covers the pinned bit -->
+<section class="cover">
+  <div class="wrap reveal">
+    <div class="kicker">Why it matters</div>
+    <h2>Named axes can explain themselves.</h2>
+    <p class="lede">Because every dimension has a name, every recommendation comes with a
+      reason — generated from the same numbers that produced the ranking, so it
+      can never contradict them.</p>
+    <div class="explain">
+      <b>Sweet Home</b> — shares <b>monster, supernatural horror</b>;
+      but is <b>shorter</b>, <b>far less complex</b>, and <b>much gorier</b>.
+    </div>
+    <div class="explain">
+      <b>Broadchurch</b> — shares <b>small town, investigation</b>;
+      but is <b>far less frightening</b> and <b>more evenly paced</b>.
+    </div>
+    <p class="lede" style="margin-top:26px;font-size:16px">
+      No “because you watched…”. An actual answer.</p>
+  </div>
+</section>
+
+<!-- 5 .............................................................. steering -->
+<section>
+  <div class="wrap reveal">
+    <div class="kicker">Steering</div>
+    <h2>Turn one thing up.<br>Turn another down.</h2>
+    <p class="lede">Found something almost right? Move a single axis. Keep the dread,
+      drop the gore. Keep the setting, lose the twenty-season commitment.
+      The catalogue re-ranks in under a millisecond.</p>
+    <div class="strip">
+      <img src="https://image.tmdb.org/t/p/w185/nWPZb800NCGiDPNGsKCfY0w44Z2.jpg" alt="" loading="lazy">
+      <img src="https://image.tmdb.org/t/p/w185/zcugNxDg59YwIf3dUHsrHmO7pc1.jpg" alt="" loading="lazy">
+      <img src="https://image.tmdb.org/t/p/w185/apbrbWs8M9lyOpJYU5WXrpFbk1Z.jpg" alt="" loading="lazy">
+      <img src="https://image.tmdb.org/t/p/w185/seN6rRfN0I6n8iDXjlSMk1QjNcq.jpg" alt="" loading="lazy">
+      <img src="https://image.tmdb.org/t/p/w185/uOOtwVbSr4QDjAGIifLDwpb2Pdl.jpg" alt="" loading="lazy">
+      <img src="https://image.tmdb.org/t/p/w185/9PFonBhy4cQy7Jz20NpMygczOkv.jpg" alt="" loading="lazy">
+    </div>
+  </div>
+</section>
+
+<!-- 6 ................................................. PINNED: the catalogue -->
+<div class="pin-wrap" style="height:220vh">
+  <div class="pin">
+    <div class="pin-inner reveal">
+      <div class="kicker">Built on real data</div>
+      <h2>500 shows. 46,264 episodes.</h2>
+      <div class="stats">
+        <div class="stat"><b>37</b><span>named axes</span></div>
+        <div class="stat"><b>461</b><span>dimensions</span></div>
+        <div class="stat"><b>46,264</b><span>episodes analysed</span></div>
+        <div class="stat"><b>0.5&nbsp;ms</b><span>per query</span></div>
+      </div>
+      <div class="strip" style="margin-top:34px">
+        <img src="https://image.tmdb.org/t/p/w185/anFx9aTOOYqgS3v7x3R84Kz67ly.jpg" alt="" loading="lazy">
+        <img src="https://image.tmdb.org/t/p/w185/vUUqzWa2LnHIVqkaKVlVGkVcZIW.jpg" alt="" loading="lazy">
+        <img src="https://image.tmdb.org/t/p/w185/1QdXdRYfktUSONkl1oD5gc6Be0s.jpg" alt="" loading="lazy">
+        <img src="https://image.tmdb.org/t/p/w185/1M876KPjulVwppEpldhdc8V4o68.jpg" alt="" loading="lazy">
+        <img src="https://image.tmdb.org/t/p/w185/AoGsDM02UVt0npBA8OvpDcZbaMi.jpg" alt="" loading="lazy">
+        <img src="https://image.tmdb.org/t/p/w185/zU0htwkhNvBQdVSIKB9s6hgVeFK.jpg" alt="" loading="lazy">
+        <img src="https://image.tmdb.org/t/p/w185/pCGyPVrI9Fzw6rE1Pvi4BIXF6ET.jpg" alt="" loading="lazy">
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 7 .................................................. covers, then account -->
+<section class="cover">
+  <div class="wrap reveal">
+    <div class="kicker">With an account</div>
+    <h2>Disagree with a score? Change it.</h2>
+    <p class="lede">The scores start from a trained model. Members correct them — and
+      because a correction is weighted against how many votes an axis already
+      has, a handful of votes nudges while a real consensus moves it a long way.</p>
+
+    <div class="grid">
+      <div class="card">
+        <span class="icon">▲ ● ▼</span>
+        <h3>Vote on any axis</h3>
+        <p>Too creepy, not creepy enough, or exactly right. The question is always
+          whether the word describes the show — never whether you liked it.</p>
+      </div>
+      <div class="card">
+        <span class="icon">✍️</span>
+        <h3>Write a review</h3>
+        <p>Reviews are how the system learns what a show is actually like to watch.
+          A synopsis says a house is haunted; only a viewer says it made them jump.</p>
+      </div>
+      <div class="card">
+        <span class="icon">🔖</span>
+        <h3>Watchlist &amp; watched</h3>
+        <p>Keep track of what you mean to watch and what you’ve finished.</p>
+      </div>
+      <div class="card">
+        <span class="icon">🕘</span>
+        <h3>Viewing history</h3>
+        <p>Everything you’ve looked at, so you can find your way back to it.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 8 ................................................................ signup -->
+<section class="final">
+  <div class="wrap reveal">
+    <h2>Find something worth watching.</h2>
+    <p class="lede" style="margin:0 auto 30px">Free. Takes a username and a password.</p>
+    <button class="cta" id="final-signup">Create an account</button>
+    <p class="hint" style="margin-top:16px">Already have one?
+      <button class="swap-inline link" id="final-login" style="color:var(--accent);padding:0">Log in</button></p>
+  </div>
+</section>
+
+<footer>
+  This product uses the TMDB API but is not endorsed or certified by TMDB.<br>
+  Built as a final-year dissertation project.
+</footer>
+
+<!-- ....................................................... auth modal ------->
+<div class="overlay" id="auth" hidden>
+  <div class="sheet">
+    <h3 id="auth-title">Create an account</h3>
+    <div class="sub" id="auth-sub">You’ll need one to vote, review and keep a watchlist.</div>
+    <form id="auth-form" autocomplete="on">
+      <label class="field" for="u">Username</label>
+      <input id="u" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+      <label class="field" for="p">Password</label>
+      <input id="p" name="password" type="password" autocomplete="current-password" required>
+      <div class="err" id="auth-err"></div>
+      <button class="cta" type="submit" id="auth-go">Create account</button>
+    </form>
+    <div class="swap" id="auth-swap"></div>
+    <p class="hint" id="auth-hint">Passwords are stored only as a scrypt hash with a
+      per-account salt — never in plain text.</p>
+  </div>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+
+// --- top bar picks up a border once you leave the hero ----------------------
+addEventListener("scroll", () => {
+  $("#bar").classList.toggle("scrolled", scrollY > 20);
+}, { passive: true });
+
+// --- progressive reveal -----------------------------------------------------
+// IntersectionObserver rather than a scroll handler: the browser does the
+// intersection maths off the main thread, so the page stays smooth.
+const io = new IntersectionObserver((entries) => {
+  for (const e of entries) {
+    if (!e.isIntersecting) continue;
+    e.target.classList.add("in");
+    // Fill the demo bars only once they are actually on screen, so the
+    // animation is seen rather than finished before you arrive.
+    e.target.querySelectorAll(".fill[data-w]").forEach((f, i) => {
+      setTimeout(() => { f.style.width = f.dataset.w + "%"; }, 90 * i);
+    });
+    io.unobserve(e.target);
+  }
+}, { threshold: 0.2 });
+document.querySelectorAll(".reveal").forEach((el) => io.observe(el));
+
+// Safety net. IntersectionObserver does not fire in a backgrounded or
+// non-compositing tab, and a page stuck at opacity 0 is far worse than an
+// unanimated one.
+//
+// The test is whether the observer fired AT ALL, rather than whether a given
+// block is on screen: getBoundingClientRect returns zeros in exactly the
+// situations where the observer is also dead, so a geometry check fails in the
+// same cases it is meant to cover. If nothing has been revealed shortly after
+// load, assume the observer is not working and show everything.
+setTimeout(() => {
+  if (document.querySelector(".reveal.in")) return;  // observer is alive
+  for (const el of document.querySelectorAll(".reveal")) {
+    el.classList.add("in");
+    el.querySelectorAll(".fill[data-w]").forEach((f) => { f.style.width = f.dataset.w + "%"; });
+  }
+}, 1500);
+
+// --- auth -------------------------------------------------------------------
+let mode = "signup";
+
+function openAuth(which) {
+  mode = which;
+  const signup = which === "signup";
+  $("#auth-title").textContent = signup ? "Create an account" : "Welcome back";
+  $("#auth-sub").textContent = signup
+    ? "You’ll need one to vote, review and keep a watchlist."
+    : "Log in to pick up where you left off.";
+  $("#auth-go").textContent = signup ? "Create account" : "Log in";
+  $("#p").autocomplete = signup ? "new-password" : "current-password";
+  $("#auth-hint").hidden = !signup;
+  $("#auth-swap").innerHTML = signup
+    ? `Already have an account? <button id="to-login">Log in</button>`
+    : `New here? <button id="to-signup">Create an account</button>`;
+  const toLogin = $("#to-login"), toSignup = $("#to-signup");
+  if (toLogin) toLogin.onclick = () => openAuth("login");
+  if (toSignup) toSignup.onclick = () => openAuth("signup");
+  $("#auth-err").textContent = "";
+  $("#auth").hidden = false;
+  $("#u").focus();
+}
+
+function closeAuth() { $("#auth").hidden = true; }
+
+$("#nav-signup").onclick = () => openAuth("signup");
+$("#nav-login").onclick = () => openAuth("login");
+$("#final-signup").onclick = () => openAuth("signup");
+$("#final-login").onclick = () => openAuth("login");
+$("#auth").onclick = (e) => { if (e.target.id === "auth") closeAuth(); };
+addEventListener("keydown", (e) => { if (e.key === "Escape") closeAuth(); });
+
+$("#auth-form").onsubmit = async (e) => {
+  e.preventDefault();
+  const btn = $("#auth-go");
+  btn.disabled = true;
+  $("#auth-err").textContent = "";
+
+  const res = await fetch(`/api/${mode}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: $("#u").value, password: $("#p").value }),
+  });
+
+  if (res.ok) {
+    // The session is an httpOnly cookie set by the server; there is no token
+    // for this page to hold on to. A reload lands on the app.
+    location.href = "/app";
+    return;
+  }
+  const body = await res.json().catch(() => ({}));
+  $("#auth-err").textContent = body.detail || "Something went wrong. Try again.";
+  btn.disabled = false;
+};
+</script>
+</body>
+</html>

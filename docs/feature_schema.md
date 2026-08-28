@@ -304,3 +304,57 @@ restricted to TMDB's genres cannot accept the request "a romance" at all.
 An interpretable axis space can, because the axes are defined by the schema
 rather than inherited from the source. This is a stronger justification for the
 approach than competitive retrieval accuracy would be, and it is measurable.
+
+---
+
+# v0.6 — accounts, and reviews as the missing corpus
+
+## Voting now requires an account
+
+The previous localStorage voter id meant one person could vote unlimited times
+by clearing browser storage, which made every tally meaningless. Identity now
+comes from an httpOnly session cookie, resolved server-side; the vote request
+body carries no identity field at all.
+
+## Reviews close the loop S4 could not close
+
+This is the important part. Report S4 established that experiential axes need
+review text, and that TMDB provides 499 reviews across 500 shows with a median
+of zero — unusable. Reviews written by members here are:
+
+- text about the viewing experience, not marketing copy
+- attached to a known TMDB show id, so no fuzzy title matching
+- free of the licensing problem that rules out scraping IMDb
+
+`AccountStore.review_text_for(show_id)` returns them for the labelling pipeline,
+so the corpus grows with use rather than being fixed at ingestion time. The
+system does not depend on this to work — the trained model already produces
+scores — but every review measurably improves the text available for the axes
+that TMDB metadata cannot evidence.
+
+## Security decisions worth defending
+
+| Decision | Reason |
+|---|---|
+| scrypt (RFC 7914), per-user salt | Memory-hard KDF, in the standard library, no dependency. Parameters stored per hash so they can be raised later without invalidating existing passwords. |
+| Hash even when the username does not exist | Otherwise response time reveals which usernames are registered. Measured: 51 ms vs 50 ms. |
+| `secrets.compare_digest` | Constant-time; `==` leaks how many leading bytes matched. |
+| httpOnly, SameSite=Lax cookie | Page scripts cannot read the token, so an XSS bug cannot exfiltrate a session. |
+| "Incorrect username or password" | A distinct "no such user" confirms which accounts exist. |
+| Reviews escaped before insertion | Reviews are written by other people; inserting them as HTML would be stored XSS. |
+
+`secure=False` on the cookie is correct only for plain-http localhost and must
+be `True` behind HTTPS.
+
+## Landing page
+
+Guests get `home.html`, signed-in users get the app. The page reveals a section
+at a time on scroll, with two pinned panels — a sticky child inside a tall
+wrapper, covered by a following section with a solid background and a higher
+stacking order.
+
+One robustness note: the reveal animation initially left every section at
+`opacity: 0` if IntersectionObserver did not fire, which would have shown a
+blank page whenever scripting was slow, blocked, or the tab was not
+compositing. Content is now visible by default, and hidden only once an inline
+script confirms scripting is alive to put it back.

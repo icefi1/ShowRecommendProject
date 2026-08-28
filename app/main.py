@@ -20,11 +20,13 @@ matrix-vector product over the whole catalogue.
 import time
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from app.accounts import SESSION_DAYS as ACCOUNT_SESSION_DAYS
+from app.accounts import AccountStore
 from app.crowd import CrowdStore
 from app.crowd import fuse as crowd_fuse
 from app.similarity import DEFAULT_WEIGHTS, FeatureSpace
@@ -91,6 +93,137 @@ PREDICTED, PREDICTED_AXES = load_predicted_axes()
 crowd = CrowdStore()
 
 
+accounts = AccountStore()
+
+SESSION_COOKIE = "sr_session"
+
+
+def current_user(request: Request):
+    """The signed-in user, or None. Read from an httpOnly cookie."""
+    return accounts.user_for_token(request.cookies.get(SESSION_COOKIE))
+
+
+def require_user(request: Request):
+    user = current_user(request)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Sign in to do that.")
+    return user
+
+
+def set_session_cookie(response: Response, token: str):
+    """
+    httpOnly so page scripts cannot read the token, which means an XSS bug
+    cannot exfiltrate a session. SameSite=Lax blocks it being sent on
+    cross-site form posts. secure=False only because this runs over plain
+    http on localhost - it must be True behind HTTPS.
+    """
+    response.set_cookie(
+        SESSION_COOKIE, token,
+        httponly=True, samesite="lax", secure=False,
+        max_age=60 * 60 * 24 * ACCOUNT_SESSION_DAYS, path="/",
+    )
+
+
+class Credentials(BaseModel):
+    username: str = Field(min_length=1, max_length=32)
+    password: str = Field(min_length=1, max_length=256)
+
+
+@app.post("/api/signup")
+def signup(creds: Credentials, response: Response):
+    user_id, error = accounts.create_user(creds.username, creds.password)
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+    set_session_cookie(response, accounts.open_session(user_id))
+    return {"username": creds.username}
+
+
+@app.post("/api/login")
+def login(creds: Credentials, response: Response):
+    user_id = accounts.authenticate(creds.username, creds.password)
+    if user_id is None:
+        # Deliberately does not say which of the two was wrong - saying
+        # "no such user" confirms which usernames exist.
+        raise HTTPException(status_code=401, detail="Incorrect username or password.")
+    set_session_cookie(response, accounts.open_session(user_id))
+    return {"username": creds.username}
+
+
+@app.post("/api/logout")
+def logout(request: Request, response: Response):
+    token = request.cookies.get(SESSION_COOKIE)
+    if token:
+        accounts.close_session(token)
+    response.delete_cookie(SESSION_COOKIE, path="/")
+    return {"ok": True}
+
+
+@app.get("/api/me")
+def me(request: Request):
+    user = current_user(request)
+    return {"user": user}
+
+
+class LibraryEntry(BaseModel):
+    show_id: int
+    # None removes the show from the library entirely.
+    status: str | None = Field(default=None, pattern="^(watchlist|watching|watched)$")
+
+
+@app.post("/api/library")
+def set_library(entry: LibraryEntry, request: Request):
+    user = require_user(request)
+    if entry.show_id not in space.index_by_id:
+        raise HTTPException(status_code=404, detail="Unknown show id")
+    accounts.set_status(user["id"], entry.show_id, entry.status)
+    return {"show_id": entry.show_id, "status": entry.status}
+
+
+@app.get("/api/library")
+def get_library(request: Request, status: str = ""):
+    user = require_user(request)
+    rows = accounts.library(user["id"], status or None)
+    for row in rows:
+        index = space.index_by_id.get(row["show_id"])
+        if index is not None:
+            row["show"] = space.catalogue[index]
+    return {"rows": [r for r in rows if "show" in r]}
+
+
+@app.get("/api/history")
+def get_history(request: Request):
+    user = require_user(request)
+    rows = accounts.history(user["id"])
+    for row in rows:
+        index = space.index_by_id.get(row["show_id"])
+        if index is not None:
+            row["show"] = space.catalogue[index]
+    return {"rows": [r for r in rows if "show" in r]}
+
+
+class ReviewBody(BaseModel):
+    show_id: int
+    body: str = Field(min_length=1, max_length=8000)
+
+
+@app.post("/api/review")
+def post_review(review: ReviewBody, request: Request):
+    """
+    Write or update this user's review of a show.
+
+    Report S4 note: this is the corpus TMDB could not provide. Reviews written
+    here are experiential text tied to a known show id, and feed back into the
+    labelling pipeline through accounts.review_text_for().
+    """
+    user = require_user(request)
+    if review.show_id not in space.index_by_id:
+        raise HTTPException(status_code=404, detail="Unknown show id")
+    error = accounts.put_review(user["id"], review.show_id, review.body)
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+    return {"ok": True, "reviews": accounts.reviews_for(review.show_id)}
+
+
 class Vote(BaseModel):
     """
     One descriptive vote on one axis of one show.
@@ -107,19 +240,27 @@ class Vote(BaseModel):
     direction: str = Field(pattern="^(up|down|neutral)$")
     # What the voter had on screen. "Higher" is meaningless without it.
     score_shown: float = Field(ge=0.0, le=1.0)
-    voter: str = Field(min_length=8, max_length=64)
 
 
 @app.post("/api/vote")
-def vote(v: Vote):
+def vote(v: Vote, request: Request):
+    """
+    Cast a descriptive vote. Requires an account.
+
+    The identity comes from the session, never from the request body. The
+    previous localStorage id could be reset at will, which made every tally
+    meaningless; a vote only stands for a person if it is tied to one.
+    """
+    user = require_user(request)
     if v.show_id not in space.index_by_id:
         raise HTTPException(status_code=404, detail="Unknown show id")
     if v.axis not in PREDICTED_AXES:
         raise HTTPException(status_code=400, detail="Unknown axis")
 
-    crowd.cast(v.show_id, v.axis, v.direction, v.score_shown, v.voter)
+    voter = f"user:{user['id']}"
+    crowd.cast(v.show_id, v.axis, v.direction, v.score_shown, voter)
     priors = PREDICTED.get(v.show_id, {})
-    return {"axis": v.axis, "state": crowd.state_for_show(v.show_id, priors, v.voter)[v.axis]}
+    return {"axis": v.axis, "state": crowd.state_for_show(v.show_id, priors, voter)[v.axis]}
 
 
 @app.get("/api/disagreements")
@@ -152,7 +293,7 @@ def disagreements(min_votes: int = 3, limit: int = 40):
 
 
 @app.get("/api/show/{show_id}")
-def show_detail(show_id: int, voter: str = ""):
+def show_detail(show_id: int, request: Request):
     """Everything the detail panel needs for one show."""
     index = space.index_by_id.get(show_id)
     if index is None:
@@ -181,7 +322,18 @@ def show_detail(show_id: int, voter: str = ""):
     # tallies, and this voter's own standing vote. With no votes anywhere the
     # scores equal the priors exactly, so the page renders identically before
     # and after the crowd layer exists.
-    show["axes"] = crowd.state_for_show(show_id, predicted, voter or None)
+    user = current_user(request)
+    voter = f"user:{user['id']}" if user else None
+    show["axes"] = crowd.state_for_show(show_id, predicted, voter)
+
+    # Per-user extras. A guest sees the show; a signed-in user also sees their
+    # own library status and review, and the visit is recorded.
+    show["signed_in"] = user is not None
+    show["library_status"] = accounts.status_for(user["id"], show_id) if user else None
+    show["my_review"] = accounts.my_review(user["id"], show_id) if user else None
+    show["reviews"] = accounts.reviews_for(show_id)
+    if user:
+        accounts.record_view(user["id"], show_id)
 
     # Ranked by the corrected score, so the panel leads with what most
     # describes the show according to model and crowd together.
@@ -252,7 +404,15 @@ def preference(query: PreferenceQuery):
 
 
 @app.get("/")
-def index():
+def index(request: Request):
+    """Guests get the landing page; signed-in users go straight to the app."""
+    page = "index.html" if current_user(request) else "home.html"
+    return FileResponse(HERE / "static" / page)
+
+
+@app.get("/app")
+def app_page():
+    """The recommender itself. Reachable directly, e.g. after signing in."""
     return FileResponse(HERE / "static" / "index.html")
 
 
