@@ -256,3 +256,51 @@ Haunting of Hill House, Sweet Home, Black Mirror), historical (The Crown,
 Peaky Blinders, Chernobyl), cynical and campy. Then re-check per-axis variance
 in the training set *before* training, so the gap is caught automatically
 rather than by inspection.
+
+---
+
+# v0.4 — coverage sampling fixes the blind spots
+
+Batch 2 selected 26 shows by keyword evidence for the axes batch 1 could not
+teach (`labelling/export_coverage.py`), rather than by TMDB primary genre.
+50 labelled shows total.
+
+| | Batch 1 (24) | Batch 2 (50) |
+|---|---|---|
+| Axes beating mean baseline | 31/37 | **36/37** |
+| `horror` R² | −0.081 | **+0.343** |
+| `historical` R² | −0.167 | **+0.311** |
+| `creepy` R² | −0.066 | **+0.299** |
+| `jumpscares` R² | no signal | **+0.245** |
+| `horror` label sd | 0.092 | 0.274 |
+
+Held-out shows the model has never seen now order correctly:
+
+| Show | horror | romance | historical |
+|---|---|---|---|
+| The Sandman | 0.35 | 0.18 | 0.15 |
+| Sweet Home | 0.34 | 0.37 | 0.08 |
+| Bridgerton | 0.08 | 0.50 | 0.28 |
+| Emily in Paris | 0.10 | 0.44 | 0.21 |
+| Vikings | 0.15 | 0.30 | 0.27 |
+
+Magnitudes stay compressed toward the mean — ridge shrinkage at n=50 — so the
+ordering is trustworthy and the absolute values are not. For a distance-based
+recommender that is the right way round, but it is why predicted axes are
+**displayed and not yet used for ranking**.
+
+## Why the taxonomy gap is the project's central argument
+
+TMDB TV offers 15 genres and includes **no Horror, Romance, Thriller, History
+or Fantasy**. Those exist in TMDB's movie taxonomy; the TV list omits them.
+The consequence over this catalogue:
+
+- 85 shows carry a `romance` keyword. **Zero** can be labelled Romance.
+- Stranger Things is labelled *Action & Adventure, Mystery, Sci-Fi & Fantasy*.
+- Black Mirror is labelled *Sci-Fi & Fantasy, Drama, Mystery*.
+
+The shows exist; the vocabulary to describe them does not. A recommender
+restricted to TMDB's genres cannot accept the request "a romance" at all.
+An interpretable axis space can, because the axes are defined by the schema
+rather than inherited from the source. This is a stronger justification for the
+approach than competitive retrieval accuracy would be, and it is measurable.

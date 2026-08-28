@@ -28,6 +28,7 @@ from pydantic import BaseModel, Field
 from app.similarity import DEFAULT_WEIGHTS, FeatureSpace
 
 HERE = Path(__file__).resolve().parent
+ROOT = HERE.parent
 
 app = FastAPI(title="Show Recommender", version="0.1.0")
 
@@ -51,6 +52,71 @@ class PreferenceQuery(BaseModel):
     genres: list[str] = Field(default_factory=list)
     weights: Weights = Field(default_factory=Weights)
     limit: int = Field(12, ge=1, le=50)
+
+
+def load_predicted_axes():
+    """
+    Per-show predicted axis scores, if the model has been trained.
+
+    These are the 37 schema axes the trained model produces. They are shown in
+    the detail panel but are deliberately NOT used for ranking yet - the model
+    is trained on 50 labels and its magnitudes are compressed, so it would make
+    recommendations worse. Displaying them keeps the two separable: you can see
+    what the model thinks without it silently steering results.
+    """
+    path = ROOT / "training" / "predictions.csv"
+    if not path.exists():
+        return {}, []
+
+    import csv
+
+    with open(path, encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+
+    if not rows:
+        return {}, []
+
+    axes = [key for key in rows[0] if key not in ("id", "name")]
+    return {
+        int(row["id"]): {axis: float(row[axis]) for axis in axes} for row in rows
+    }, axes
+
+
+PREDICTED, PREDICTED_AXES = load_predicted_axes()
+
+
+@app.get("/api/show/{show_id}")
+def show_detail(show_id: int):
+    """Everything the detail panel needs for one show."""
+    index = space.index_by_id.get(show_id)
+    if index is None:
+        raise HTTPException(status_code=404, detail="Unknown show id")
+
+    show = dict(space.catalogue[index])
+
+    # Measured structure axes, as percentiles across the catalogue.
+    structure_names = space.block_labels["structure"]
+    show["structure"] = {
+        name: round(float(space.blocks["structure"][index][column]), 3)
+        for column, name in enumerate(structure_names)
+    }
+
+    # The show's most distinctive keywords - highest IDF weight, so the ones
+    # that actually say something rather than "drama".
+    keyword_row = space.blocks["keywords"][index]
+    vocabulary = space.block_labels["keywords"]
+    ranked = sorted(range(len(vocabulary)), key=lambda i: -keyword_row[i])
+    show["top_keywords"] = [vocabulary[i] for i in ranked[:12] if keyword_row[i] > 0]
+
+    predicted = PREDICTED.get(show_id, {})
+    show["predicted"] = {k: round(v, 3) for k, v in predicted.items()}
+    # Ranked so the panel can lead with what most describes the show.
+    show["predicted_top"] = sorted(
+        predicted.items(), key=lambda kv: -kv[1]
+    )[:10]
+    show["has_model"] = bool(predicted)
+
+    return show
 
 
 @app.get("/api/axes")

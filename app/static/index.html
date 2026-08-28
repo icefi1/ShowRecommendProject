@@ -92,7 +92,56 @@
   .score .big { font-size: 17px; font-weight: 600; color: var(--good); }
   .score .parts { font-size: 11px; color: var(--muted); margin-top: 4px; line-height: 1.35; }
 
+  .card { cursor: pointer; transition: border-color .12s, background .12s; }
+  .card:hover { border-color: var(--accent); background: var(--panel-2); }
+
   .empty { color: var(--muted); padding: 40px 0; text-align: center; }
+
+  /* --- detail panel ------------------------------------------------------ */
+  .overlay {
+    position: fixed; inset: 0; background: rgba(8,9,13,.72);
+    display: flex; justify-content: center; align-items: flex-start;
+    padding: 40px 20px; overflow-y: auto; z-index: 50;
+  }
+  .overlay[hidden] { display: none; }
+  .sheet {
+    width: min(760px, 100%); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 12px; padding: 22px;
+  }
+  .sheet-head { display: grid; grid-template-columns: 92px 1fr auto; gap: 16px; }
+  .sheet-head img { width: 92px; border-radius: 6px; background: var(--panel-2); }
+  .sheet h2 { margin: 0 0 3px; font-size: 21px; }
+  .sheet .sub { color: var(--muted); font-size: 13px; }
+  .sheet .overview { margin: 14px 0 0; font-size: 14px; color: #c8cddd; }
+  .close {
+    background: var(--panel-2); border: 1px solid var(--line); color: var(--muted);
+    border-radius: 6px; width: 30px; height: 30px; cursor: pointer; font-size: 16px;
+  }
+  .close:hover { color: var(--text); border-color: var(--accent); }
+
+  .sheet h4 {
+    margin: 20px 0 8px; font-size: 11px; text-transform: uppercase;
+    letter-spacing: .07em; color: var(--muted); font-weight: 600;
+  }
+  .bars { display: grid; gap: 5px; }
+  .bar { display: grid; grid-template-columns: 132px 1fr 38px; gap: 9px; align-items: center; font-size: 12px; }
+  .bar .track { height: 7px; background: var(--panel-2); border-radius: 4px; overflow: hidden; }
+  .bar .fill { height: 100%; background: var(--accent); border-radius: 4px; }
+  .bar .fill.measured { background: var(--good); }
+  .bar .num { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 5px; }
+  .chip {
+    padding: 3px 9px; font-size: 12px; border-radius: 20px;
+    background: var(--panel-2); border: 1px solid var(--line); color: var(--muted);
+  }
+  .note { font-size: 12px; color: var(--muted); margin-top: 6px; line-height: 1.45; }
+  .sheet-actions { margin-top: 20px; display: flex; gap: 8px; }
+  .btn {
+    padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px;
+    background: var(--accent); color: #12131a; border: 0; font-weight: 600;
+  }
+  .btn.ghost { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); font-weight: 400; }
   footer { padding: 14px 28px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
 </style>
 </head>
@@ -133,6 +182,8 @@
     <div id="results"><div class="empty">Pick a show, or switch to preference mode.</div></div>
   </main>
 </div>
+
+<div class="overlay" id="detail" hidden><div class="sheet" id="sheet"></div></div>
 
 <footer>This product uses the TMDB API but is not endorsed or certified by TMDB.</footer>
 
@@ -304,7 +355,7 @@ function render(data, showQuery) {
     const parts = Object.entries(r.block_scores)
       .map(([k, v]) => `${k[0]}${v.toFixed(2)}`).join(" · ");
     return `
-      <article class="card">
+      <article class="card" data-show="${r.id}">
         ${poster}
         <div>
           <h3>${r.name}</h3>
@@ -318,6 +369,102 @@ function render(data, showQuery) {
       </article>`;
   }).join("");
 }
+
+// --- detail panel -----------------------------------------------------------
+
+// Friendlier wording for the measured structure axes, which are stored as
+// percentile ranks across the catalogue rather than raw values.
+const STRUCTURE_LABELS = {
+  episode_count: "Episode count", season_count: "Seasons",
+  episode_length: "Episode length", maturity: "Maturity",
+  audience_rating: "Audience rating", is_miniseries: "Miniseries",
+  rating_stdev: "Episode variability", slow_burn_slope: "Slow burn",
+  finale_delta: "Finale-driven", vote_peak_ratio: "Standout episodes",
+  guest_star_mean: "Ensemble size", entity_density: "Names to track",
+  runtime_stdev: "Runtime variation",
+};
+
+$("#results").addEventListener("click", (e) => {
+  const card = e.target.closest("[data-show]");
+  if (card) openDetail(parseInt(card.dataset.show, 10));
+});
+
+function bar(label, value, measured) {
+  const pct = Math.round(value * 100);
+  return `<div class="bar">
+    <span>${label}</span>
+    <span class="track"><span class="fill${measured ? " measured" : ""}" style="width:${pct}%"></span></span>
+    <span class="num">${value.toFixed(2)}</span>
+  </div>`;
+}
+
+async function openDetail(id) {
+  const s = await (await fetch(`/api/show/${id}`)).json();
+
+  const poster = s.poster
+    ? `<img src="https://image.tmdb.org/t/p/w185${s.poster}" alt="">`
+    : `<div style="width:92px;height:138px;background:var(--panel-2);border-radius:6px"></div>`;
+
+  // Measured axes come from TMDB fields and episode data; predicted axes come
+  // from the trained model. They are shown separately and coloured
+  // differently, because they carry very different confidence.
+  const structure = Object.entries(s.structure)
+    .map(([k, v]) => [STRUCTURE_LABELS[k] || k, v])
+    .sort((a, b) => b[1] - a[1])
+    .map(([k, v]) => bar(k, v, true)).join("");
+
+  const predicted = s.has_model
+    ? s.predicted_top.map(([k, v]) => bar(k.replace(/_/g, " "), v, false)).join("")
+    : `<div class="note">No trained model on disk — run training/train_model.py.</div>`;
+
+  $("#sheet").innerHTML = `
+    <div class="sheet-head">
+      ${poster}
+      <div>
+        <h2>${s.name}</h2>
+        <div class="sub">${s.year} · ${s.genres.join(", ") || "—"} · ${s.seasons} seasons,
+          ${s.episodes} episodes · ★ ${s.rating}</div>
+      </div>
+      <button class="close" id="close-detail" aria-label="Close">&times;</button>
+    </div>
+    <p class="overview">${s.overview || "No synopsis available."}</p>
+
+    <h4>Predicted axes — trained model</h4>
+    <div class="bars">${predicted}</div>
+    <div class="note">Predicted from text by a model trained on hand-labelled shows.
+      Values are compressed toward the middle at this training-set size, so read
+      the ordering rather than the absolute numbers. These do not affect ranking yet.</div>
+
+    <h4>Measured axes — from TMDB and episode data</h4>
+    <div class="bars">${structure}</div>
+    <div class="note">Percentile ranks across the 500-show catalogue. 0.90 means
+      higher than 90% of the catalogue, not an absolute score.</div>
+
+    <h4>Most distinctive keywords</h4>
+    <div class="chips">${s.top_keywords.map((k) => `<span class="chip">${k}</span>`).join("") || "—"}</div>
+
+    <div class="sheet-actions">
+      <button class="btn" id="find-similar">Find shows like this</button>
+      <button class="btn ghost" id="close-detail-2">Close</button>
+    </div>`;
+
+  $("#detail").hidden = false;
+  $("#close-detail").onclick = closeDetail;
+  $("#close-detail-2").onclick = closeDetail;
+  $("#find-similar").onclick = () => {
+    closeDetail();
+    switchMode("show");
+    pickShow(id);
+  };
+}
+
+function closeDetail() { $("#detail").hidden = true; }
+
+// Click the backdrop or press Escape to dismiss - both are expected.
+$("#detail").onclick = (e) => { if (e.target.id === "detail") closeDetail(); };
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("#detail").hidden) closeDetail();
+});
 
 // --- tabs -------------------------------------------------------------------
 
