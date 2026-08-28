@@ -426,3 +426,87 @@ missing data rather than for being unsuitable.
 `NR` is deliberately unmapped — "not rated" is missing data, not a rating, and
 giving it a number would invent information. 6% of the catalogue remains
 unrated and sits mid-scale.
+
+---
+
+# v0.8 — the full catalogue
+
+3,542 shows, up from 500. The whole Netflix GB listing TMDB exposes.
+
+| | Before | Now |
+|---|---|---|
+| Shows | 500 | **3,542** |
+| Episodes | 46,264 | **93,447** |
+| Episode-overview corpus | 1.66M words | **2.82M words** |
+| Feature dimensions | 461 | **1,446** (keywords 440 → 1,418) |
+| `shows_raw.json` | 115 MB | **8.5 MB** |
+| Query latency | 0.47 ms | 1.74 ms median, 2.11 ms p95 |
+
+## Rate
+
+TMDB permits **50 requests/second and 20 connections per IP**. (The widely
+remembered "40 requests per 10 seconds" was the original limit and was retired
+in December 2019.) The fetchers slept 0.25s on a single thread — 4 requests a
+second, twelve times under the ceiling.
+
+They now run 12 workers against a shared limiter at 30 requests/second, 60% of
+the published limit. Measured 29.8 req/s sustained with no 429 responses.
+
+`rate_limit.py` spaces requests rather than using a token bucket. A bucket
+permits a burst up to its capacity after an idle moment, which is exactly the
+shape a CDN's DDoS heuristics look for; a hard minimum gap keeps the rate flat.
+
+## Size: 800 MB avoided
+
+The raw `/tv/{id}` response is ~224 KB. At 3,542 shows that is ~800 MB. Measured
+by field:
+
+| Field | Share of file | Used by the project |
+|---|---|---|
+| `aggregate_credits` | 75% | **nowhere** |
+| `recommendations` | 10% | ids only |
+| `similar` | 10% | ids only |
+
+Trimming on ingestion gives **2.4 KB per show — 94× smaller**. The top 12 cast
+names are kept (~400 bytes) because cast overlap is a plausible similarity
+signal and re-fetching 3,542 shows to recover it would be expensive.
+
+`build_space.py` accepts both the old and new shapes, so an existing
+`shows_raw.json` does not have to be re-fetched.
+
+## 21% of the catalogue was invisible
+
+A single `popularity.desc` sweep of 178 pages returned 2,815 of 3,541 shows.
+TMDB sorts the result set live, so the ordering shifts between page requests:
+some shows appear twice and others are never returned at all.
+
+Sweeping both directions and taking the union fixes it:
+
+| Sort order | New ids |
+|---|---|
+| `popularity.desc` | 2,831 |
+| `popularity.asc` | **+711 → 3,542 (100%)** |
+| `first_air_date.desc` | +0 |
+| `vote_count.desc` | +0 |
+
+Whatever drifts out of view going down is near the front going up. The two extra
+orderings were measured, found to contribute nothing, and removed rather than
+left in costing 356 requests.
+
+## What the scale changed
+
+**Recommendations improved, visibly.** The Haunting of Hill House now returns
+The Haunting of Bly Manor at 0.740 — its sibling series, absent from the
+500-show catalogue entirely — then The Midnight Club, Archive 81 and The Fall of
+the House of Usher. Sesame Street returns only TV-Y educational shows.
+
+**Review coverage fell from 44% to 19%** — 1,034 reviews across 3,542 shows.
+This strengthens the cold-start argument rather than weakening it: the tail is
+precisely where TMDB has nothing, and precisely where a model reading text has
+to work.
+
+**The labelled set is now 1.4% of the catalogue, down from 10%.** Cross-validated
+MAE is unchanged at 0.179 with 36/37 axes beating baseline, because that is
+measured over the 50 labelled shows. What cannot be measured from those 50 is
+how well the model extrapolates to the other 3,492. More labels are now the
+binding constraint on everything downstream.

@@ -90,6 +90,21 @@ def load_episode_features():
     return rows
 
 
+def as_ids(value):
+    """
+    Read a similar/recommendations field in either shape.
+
+    fetch_shows.py now stores these as bare id lists; older files hold TMDB's
+    full `{"results": [{...}]}` payload. Accepting both means the space can be
+    rebuilt from data fetched before the trim without re-downloading it.
+    """
+    if not value:
+        return []
+    if isinstance(value, dict):
+        return [x["id"] for x in value.get("results", [])]
+    return [x["id"] if isinstance(x, dict) else x for x in value]
+
+
 def numeric(row, key):
     """Read one float from a CSV row, treating blanks and junk as zero."""
     try:
@@ -234,11 +249,13 @@ def build():
             # rating - see similarity.py.
             "certificate": certificate_label(s)[0],
             "maturity": round(certificate(s), 3),
-            # TMDB's own similarity, kept as the ground-truth proxy for S9.2
-            "tmdb_similar": [x["id"] for x in s.get("similar", {}).get("results", [])],
-            "tmdb_recommended": [
-                x["id"] for x in s.get("recommendations", {}).get("results", [])
-            ],
+            # TMDB's own similarity, kept as the ground-truth proxy for S9.2.
+            # Stored as bare id lists by fetch_shows.py - the full show records
+            # TMDB returns here were 20% of the raw file and only the ids are
+            # ever read. The dict form is still accepted so an older
+            # shows_raw.json does not have to be re-fetched.
+            "tmdb_similar": as_ids(s.get("similar")),
+            "tmdb_recommended": as_ids(s.get("recommendations")),
         }
         for s in shows
     ]
