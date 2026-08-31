@@ -120,6 +120,19 @@
 
   .empty { color: var(--muted); padding: 40px 0; text-align: center; }
 
+  /* Paging control under the results. It doubles as the scroll sentinel: when
+     it comes into view the next page loads itself, so the button is the manual
+     fallback rather than the only way through. */
+  .more { padding: 4px 0 40px; text-align: center; }
+  .more button {
+    padding: 10px 22px; font-size: 13px; cursor: pointer;
+    background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 6px;
+  }
+  .more button:hover { border-color: var(--accent); }
+  .more button[disabled] { color: var(--muted); cursor: default; border-color: var(--line); }
+  .more .exhausted { color: var(--muted); font-size: 12px; }
+
   /* --- detail panel ------------------------------------------------------ */
   .overlay {
     position: fixed; inset: 0; background: rgba(8,9,13,.72);
@@ -233,6 +246,7 @@
   <main>
     <div class="meta-line" id="meta"></div>
     <div id="results"><div class="empty">Pick a show, or switch to preference mode.</div></div>
+    <div class="more" id="more"></div>
   </main>
 </div>
 
@@ -242,7 +256,20 @@
 
 <script>
 const $ = (s) => document.querySelector(s);
-const state = { mode: "show", show: null, weights: {}, structure: {}, genres: new Set(), axes: null };
+const state = {
+  mode: "show", show: null, weights: {}, structure: {}, genres: new Set(), axes: null,
+  // Paging: how many results are on screen, how many the query can return, and
+  // a guard so the scroll sentinel cannot fire a second request while the first
+  // one is still in flight.
+  shown: 0, total: 0, loading: false,
+  // Bumped by every fresh query, so a response that arrives after a newer
+  // query has started can be recognised as stale and discarded.
+  generation: 0,
+};
+
+// Results per request. The ranking is over the whole catalogue either way -
+// this only decides how much of it arrives at once.
+const PAGE_SIZE = 24;
 
 // Axes the dials expose. The structure block has more axes than this, but a
 // wall of 13 sliders is not "usable in ten seconds" - these are the ones a
@@ -350,61 +377,127 @@ function pickShow(id) {
 
 function prompt(message) {
   $("#results").innerHTML = `<div class="empty">${message}</div>`;
+  clearPaging();
   $("#meta").innerHTML =
     `${state.axes.catalogue_size} shows · ${state.axes.keyword_count} keyword dimensions `
     + `· ${state.axes.structure.length} structure axes`;
 }
 
-async function run() {
-  if (state.mode === "show") {
-    if (!state.show) return prompt("Search for a show to see what it sits near.");
-    const w = state.weights;
-    const url = `/api/similar/${state.show}?genre=${w.genre}&keywords=${w.keywords}&structure=${w.structure}`;
-    render(await (await fetch(url)).json(), true);
-  } else {
-    // A query where every dial sits at its neutral midpoint and no genre is
-    // chosen expresses no preference at all. Ranking against it returns
-    // whatever happens to sit nearest the centre of the space, which looks
-    // like a result but means nothing. Ask for an intention instead.
-    const moved = Object.values(state.structure).some((v) => v !== 0.5);
-    if (!moved && state.genres.size === 0) {
-      return prompt("Pick a genre or move a dial to describe what you want.");
-    }
-
-    const body = {
-      structure: state.structure,
-      genres: [...state.genres],
-      weights: state.weights,
-      limit: 12,
-    };
-    render(await (await fetch("/api/preference", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    })).json(), false);
-  }
+// Called whenever something other than paging fills the results column, so a
+// stale "show more" button cannot page a query that is no longer on screen.
+function clearPaging() {
+  state.shown = 0;
+  state.total = 0;
+  $("#more").innerHTML = "";
 }
 
-function render(data, showQuery) {
+async function run(append = false) {
+  // Paging is the only thing that must not overlap itself: two appends in
+  // flight together would add the same page twice. A fresh query is allowed to
+  // interrupt anything.
+  if (append && state.loading) return;
+  if (!append) state.generation++;
+  const generation = state.generation;
+  // Changing a weight, a dial or the chosen show restarts the ranking from the
+  // top. Only the paging control appends to what is already there.
+  const offset = append ? state.shown : 0;
+
+  let data;
+  let showQuery;
+  state.loading = true;
+  try {
+    if (state.mode === "show") {
+      if (!state.show) return prompt("Search for a show to see what it sits near.");
+      const w = state.weights;
+      const url = `/api/similar/${state.show}?genre=${w.genre}&keywords=${w.keywords}`
+        + `&structure=${w.structure}&limit=${PAGE_SIZE}&offset=${offset}`;
+      data = await (await fetch(url)).json();
+      showQuery = true;
+    } else {
+      // A query where every dial sits at its neutral midpoint and no genre is
+      // chosen expresses no preference at all. Ranking against it returns
+      // whatever happens to sit nearest the centre of the space, which looks
+      // like a result but means nothing. Ask for an intention instead.
+      const moved = Object.values(state.structure).some((v) => v !== 0.5);
+      if (!moved && state.genres.size === 0) {
+        return prompt("Pick a genre or move a dial to describe what you want.");
+      }
+
+      data = await (await fetch("/api/preference", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          structure: state.structure,
+          genres: [...state.genres],
+          weights: state.weights,
+          limit: PAGE_SIZE,
+          offset,
+        }),
+      })).json();
+      showQuery = false;
+    }
+  } finally {
+    state.loading = false;
+  }
+
+  // A newer query started while this one was in flight - dragging a dial fires
+  // one per step - so these results are already stale. Dropping them here is
+  // what stops an old response overwriting a newer one.
+  if (generation !== state.generation) return;
+  render(data, showQuery, append);
+}
+
+function render(data, showQuery, append = false) {
   if (showQuery && data.query_show) {
     const q = data.query_show;
     $("#chosen").innerHTML =
       `<div class="chosen">${q.name}<small>${q.year} · ${q.genres.join(", ")} · ${q.episodes} episodes</small></div>`;
   }
 
-  $("#meta").innerHTML =
-    `${data.results.length} results in <b>${data.query_ms} ms</b> · `
-    + `${state.axes.catalogue_size} shows · ${state.axes.keyword_count} keyword dimensions`;
-
-  if (!data.results.length) {
+  if (!append && !data.results.length) {
     $("#results").innerHTML = `<div class="empty">Nothing matched.</div>`;
+    clearPaging();
     return;
   }
 
   // One renderer for search results and library listings alike. They had
   // drifted apart, and a change made to one silently missed the other.
-  $("#results").innerHTML = data.results.map(showCard).join("");
+  const cards = data.results.map(showCard).join("");
+  if (append) {
+    // Appending rather than replacing is what makes this one continuous list
+    // to scroll rather than a set of pages that lose your place.
+    $("#results").insertAdjacentHTML("beforeend", cards);
+    state.shown += data.results.length;
+  } else {
+    $("#results").innerHTML = cards;
+    state.shown = data.results.length;
+    window.scrollTo({ top: 0 });
+  }
+  state.total = data.total ?? state.shown;
+
+  $("#meta").innerHTML =
+    `showing ${state.shown} of ${state.total} · <b>${data.query_ms} ms</b> · `
+    + `${state.axes.catalogue_size} shows · ${state.axes.keyword_count} keyword dimensions`;
+  drawPaging();
 }
+
+function drawPaging() {
+  const remaining = state.total - state.shown;
+  $("#more").innerHTML = remaining > 0
+    ? `<button id="more-btn">Show ${Math.min(PAGE_SIZE, remaining)} more · ${remaining} left</button>`
+    : `<span class="exhausted">That is the whole catalogue.</span>`;
+}
+
+// The button is a real button, so keyboard users and anyone who prefers to
+// click are not left out. Delegated from a container that survives re-renders.
+$("#more").onclick = (e) => { if (e.target.id === "more-btn") run(true); };
+
+// ...and it loads itself when scrolled into view. IntersectionObserver reports
+// when an element enters the viewport, which is cheaper and steadier than
+// measuring scroll position on every scroll event.
+new IntersectionObserver((entries) => {
+  if (entries[0].isIntersecting && state.shown && !state.loading) run(true);
+}, { rootMargin: "200px" }).observe($("#more"));
 
 // --- detail panel -----------------------------------------------------------
 
@@ -681,6 +774,8 @@ async function loadAccount() {
     $("#results").innerHTML = rows.length
       ? rows.map(showCard).join("")
       : `<div class="empty">Nothing in ${which} yet.</div>`;
+    // A library listing is not a ranking, so there is no next page to offer.
+    clearPaging();
   };
 }
 

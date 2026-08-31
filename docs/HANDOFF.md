@@ -63,6 +63,11 @@ docs/          feature_schema.md is the running research log
 - `docs/feature_schema.md` is the prose companion + every finding, versioned v0.1→v0.9.
 - Similarity is **blocked weighted cosine**, weights set per query. Neighbours
   always computed in full dimensional space.
+- Results are **paged**, 24 at a time: `_rank()` takes an `offset`, the API
+  returns `total`, and the interface appends the next page as you reach the
+  bottom (`IntersectionObserver`) or press the button. Ranking is always over
+  the whole catalogue - paging only changes which slice comes back, so the
+  ordering is identical whether you ask for 12 results or 3,541.
 - Predicted axes are **displayed but do NOT drive ranking** — at 78 labels the
   magnitudes are compressed by ridge shrinkage, so ordering is trustworthy and
   absolute values are not. Same for crowd-corrected scores.
