@@ -426,3 +426,235 @@ missing data rather than for being unsuitable.
 `NR` is deliberately unmapped — "not rated" is missing data, not a rating, and
 giving it a number would invent information. 6% of the catalogue remains
 unrated and sits mid-scale.
+
+---
+
+# v0.8 — the full catalogue
+
+3,542 shows, up from 500. The whole Netflix GB listing TMDB exposes.
+
+| | Before | Now |
+|---|---|---|
+| Shows | 500 | **3,542** |
+| Episodes | 46,264 | **93,447** |
+| Episode-overview corpus | 1.66M words | **2.82M words** |
+| Feature dimensions | 461 | **1,446** (keywords 440 → 1,418) |
+| `shows_raw.json` | 115 MB | **8.5 MB** |
+| Query latency | 0.47 ms | 1.74 ms median, 2.11 ms p95 |
+
+## Rate
+
+TMDB permits **50 requests/second and 20 connections per IP**. (The widely
+remembered "40 requests per 10 seconds" was the original limit and was retired
+in December 2019.) The fetchers slept 0.25s on a single thread — 4 requests a
+second, twelve times under the ceiling.
+
+They now run 12 workers against a shared limiter at 30 requests/second, 60% of
+the published limit. Measured 29.8 req/s sustained with no 429 responses.
+
+`rate_limit.py` spaces requests rather than using a token bucket. A bucket
+permits a burst up to its capacity after an idle moment, which is exactly the
+shape a CDN's DDoS heuristics look for; a hard minimum gap keeps the rate flat.
+
+## Size: 800 MB avoided
+
+The raw `/tv/{id}` response is ~224 KB. At 3,542 shows that is ~800 MB. Measured
+by field:
+
+| Field | Share of file | Used by the project |
+|---|---|---|
+| `aggregate_credits` | 75% | **nowhere** |
+| `recommendations` | 10% | ids only |
+| `similar` | 10% | ids only |
+
+Trimming on ingestion gives **2.4 KB per show — 94× smaller**. The top 12 cast
+names are kept (~400 bytes) because cast overlap is a plausible similarity
+signal and re-fetching 3,542 shows to recover it would be expensive.
+
+`build_space.py` accepts both the old and new shapes, so an existing
+`shows_raw.json` does not have to be re-fetched.
+
+## 21% of the catalogue was invisible
+
+A single `popularity.desc` sweep of 178 pages returned 2,815 of 3,541 shows.
+TMDB sorts the result set live, so the ordering shifts between page requests:
+some shows appear twice and others are never returned at all.
+
+Sweeping both directions and taking the union fixes it:
+
+| Sort order | New ids |
+|---|---|
+| `popularity.desc` | 2,831 |
+| `popularity.asc` | **+711 → 3,542 (100%)** |
+| `first_air_date.desc` | +0 |
+| `vote_count.desc` | +0 |
+
+Whatever drifts out of view going down is near the front going up. The two extra
+orderings were measured, found to contribute nothing, and removed rather than
+left in costing 356 requests.
+
+## What the scale changed
+
+**Recommendations improved, visibly.** The Haunting of Hill House now returns
+The Haunting of Bly Manor at 0.740 — its sibling series, absent from the
+500-show catalogue entirely — then The Midnight Club, Archive 81 and The Fall of
+the House of Usher. Sesame Street returns only TV-Y educational shows.
+
+**Review coverage fell from 44% to 19%** — 1,034 reviews across 3,542 shows.
+This strengthens the cold-start argument rather than weakening it: the tail is
+precisely where TMDB has nothing, and precisely where a model reading text has
+to work.
+
+**The labelled set is now 1.4% of the catalogue, down from 10%.** Cross-validated
+MAE is unchanged at 0.179 with 36/37 axes beating baseline, because that is
+measured over the 50 labelled shows. What cannot be measured from those 50 is
+how well the model extrapolates to the other 3,492. More labels are now the
+binding constraint on everything downstream.
+
+---
+
+# v0.9 — batch 3, and the sampler that picks its own targets
+
+78 labelled shows. **37/37 axes now beat the mean baseline**, mean MAE 0.174.
+
+## The sampler no longer fights the last battle
+
+`export_coverage.py` used to carry a fixed evidence dictionary aimed at the axes
+that were weak after batch 1 — horror, romance, historical, fantasy, thriller,
+cynical. Once those closed, it kept hunting them and ignored the axes that had
+quietly become the weakest.
+
+It now measures label variance at run time and picks the six weakest judgement
+axes to chase (`pick_targets`). Fact axes are excluded, because TMDB settles
+them and low variance there costs nothing. Batch 3 selected itself:
+
+    jumpscares, dialogue_driven, plot_complexity, ensemble,
+    emotional_intensity, sentimental
+
+## Result
+
+| Axis | R² after batch 2 | R² after batch 3 |
+|---|---|---|
+| `jumpscares` | 0.245 | **0.556** |
+| `horror` | 0.343 | **0.570** |
+| `creepy` | 0.299 | **0.513** |
+| `plot_twists` | — | **0.362** |
+| `dialogue_driven` | — | **0.339** |
+| `plot_complexity` | — | **0.316** |
+
+`jumpscares` more than doubling is the one that matters: it is the axis the
+project's motivating query is built on, and it had zero variance two batches
+ago. The batch deliberately paired horror titles that *do* rely on shocks
+(Marianne, GHOUL, Haunted) against ones whose own reviews say they do not
+(Archive 81, School Tales) — the axis cannot be learned from horror shows alone,
+only from horror shows that differ on it.
+
+Held-out, on shows never seen in training:
+
+| Show | jumpscares | horror | creepy | dialogue_driven |
+|---|---|---|---|---|
+| The Fall of the House of Usher | 0.30 | 0.50 | 0.54 | 0.66 |
+| Dark | 0.31 | 0.45 | 0.52 | 0.59 |
+| Midnight Mass | 0.28 | 0.44 | 0.47 | 0.56 |
+| Better Call Saul | **0.00** | **0.00** | 0.03 | **0.74** |
+
+Better Call Saul is the useful case: a talky legal drama scored at zero on all
+three horror axes and high on dialogue, with no horror example resembling it
+anywhere in training.
+
+## Still weakest
+
+`sentimental` (0.053), `absurd` (0.084), `earnest` (0.091) and `slow_burn`
+(0.107). These are diffuse tonal qualities with no keyword vocabulary to sample
+against — the evidence terms reach them only obliquely, through subject matter
+that tends to accompany them. They are the natural target for batch 4, and it is
+an open question whether keyword-based sampling can reach them at all.
+
+`documentary` sits at 0.012 and should be ignored: it is a fact axis, written
+from TMDB rather than predicted, so its regression score is meaningless.
+
+---
+
+# v0.10 — explanation ordering
+
+An explanation is the contribution, so it gets measured like everything else.
+`evaluation/explanation_audit.py` samples 120 shows on a fixed seed, takes the
+top 5 results for each, and counts what the 600 resulting explanations actually
+say. Rerunnable, so the numbers below are reproducible rather than impressions.
+
+## What was wrong
+
+| | Before | After |
+|---|---|---|
+| Explanation names a shared genre | 0.0% | **95.3%** |
+| Explanation names a shared keyword | 75.0% | 70.7% |
+| **No shared clause at all** | **25.0%** | **4.3%** |
+| Cites a provenance keyword | 9.7% | **0.0%** |
+
+A quarter of explanations opened with `but is ...` and listed only differences.
+The reader was told how two shows diverge before — or instead of — being told
+they had anything in common:
+
+    The Loud House -> Sharkdog: but is more evenly watched and more names
+                                and factions to track
+
+Both are animated children's comedies. The engine knew that; the explanation
+could not say it, because `explain()` read the keyword and structure blocks and
+never touched the genre block at all. Nothing was broken in the ranking — the
+sentence just described the least interesting axis available.
+
+## The fix
+
+Three clauses, fixed order, genre first:
+
+    both crime dramas; shares drug cartels, outlaw; but has shorter episodes
+    \_____ genre _____/ \______ keywords ________/ \____ structure _______/
+
+1. **Genre clause, new.** Shared genres are an element-wise minimum on the
+   binary genre block, the same operation already used on keywords. Which two
+   to name is decided by catalogue frequency: the commonest shared genre
+   becomes the noun (the broadest true statement about the pair) and the rarest
+   becomes the modifier (the most specific). Drama is on 1,707 shows and Crime
+   on 621, so a pair sharing both reads *both crime dramas*, not *both drama
+   crimes*. This reuses the rarity-is-informativeness principle from the IDF
+   keyword weighting on a block that is binary and has no IDF of its own.
+
+2. **Keywords second**, unchanged apart from the filter below.
+
+3. **Structure last, and capped at one difference** (was two). Trade-off stated
+   plainly: a second difference carries real information, but every structural
+   clause pushes the shared genre and subject further from the start of the
+   sentence. Nobody chooses a programme by its episode-length percentile.
+
+**Provenance keywords are suppressed.** 24 vocabulary terms describe where a
+show came from rather than what watching it is like — every `based on ...`
+variant plus `remake`. They are among the commonest keywords in the catalogue,
+so they matched constantly and explained nothing: *Shafted* was recommended
+four shows on the sole shared ground of `remake`. They are hidden from the
+explanation only; they keep their IDF weight and still influence ranking.
+Dropping them from the vocabulary outright would change results and is left as
+an ablation for the evaluation chapter rather than made silently here.
+
+**Grammar.** `STRUCTURE_PHRASING` stored bare noun phrases and the sentence was
+built as `"but is " + phrase`, which produced *but is shorter episodes* and *but
+is more names and factions to track*. Each phrase now carries its own verb.
+
+## The honest failure case
+
+When two shows share no genre and no keyword, the result is there on structural
+form alone. Listing its structural differences would be exactly the failure this
+ordering exists to remove, so the explanation says what happened instead:
+
+    no shared genre or subject - matched on form alone
+
+This is a data limitation surfaced rather than papered over. **87 shows (2.5% of
+the catalogue) carry neither a TMDB genre nor a single surviving keyword**, and
+19.3% carry no keyword — those records cannot produce a substantive explanation
+from catalogue data at any ordering. They are the strongest argument for the
+predicted axes: a model reading text can describe a show TMDB never labelled.
+
+## Still open
+
+Preference-mode results have no explanation at all — there is no query show to
+diff against. The same three-clause mechanism would work against the dial
+settings themselves.

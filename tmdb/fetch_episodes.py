@@ -22,13 +22,20 @@ Run:
 
 import json
 import os
+import sys
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import requests
 from dotenv import load_dotenv
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent))
+
+from tmdb.rate_limit import WORKERS, RateLimiter  # noqa: E402
+
 load_dotenv(HERE.parent / ".env")
 
 TOKEN = os.getenv("TMDB_TOKEN")
@@ -37,7 +44,20 @@ if not TOKEN:
 
 BASE = "https://api.themoviedb.org/3"
 HEADERS = {"Authorization": f"Bearer {TOKEN}", "accept": "application/json"}
-PAUSE = 0.25
+
+# Shared with fetch_shows.py: 30 requests/second against TMDB's published
+# ceiling of 50, spread over 12 workers against its 20-connection limit.
+limiter = RateLimiter()
+_session = threading.local()
+
+
+def session():
+    """One requests.Session per thread - sessions are not thread-safe, and
+    keep-alive matters over thousands of requests."""
+    if not hasattr(_session, "s"):
+        _session.s = requests.Session()
+        _session.s.headers.update(HEADERS)
+    return _session.s
 
 # TMDB refuses more than 20 sub-resources on one append_to_response. Shows with
 # more seasons than this are fetched over several requests.
@@ -58,11 +78,14 @@ def get(path, **params):
     """
     for attempt in range(MAX_RETRIES):
         try:
-            response = requests.get(
-                f"{BASE}{path}", headers=HEADERS, params=params, timeout=30
-            )
+            limiter.wait()
+            response = session().get(f"{BASE}{path}", params=params, timeout=30)
+            if response.status_code == 429:
+                wait = int(response.headers.get("retry-after", "2"))
+                print(f"    rate limited, waiting {wait}s")
+                time.sleep(wait)
+                continue
             response.raise_for_status()
-            time.sleep(PAUSE)
             return response.json()
         except requests.RequestException as error:
             # 4xx responses are our fault and will fail identically on retry.
@@ -129,32 +152,43 @@ def main():
     out = HERE / "episodes.json"
     all_episodes = []
 
-    for index, show in enumerate(shows, start=1):
+    def seasons_of(show):
         # Season 0 is TMDB's "Specials" bucket - out-of-continuity extras that
         # would distort any pacing measure, so it is excluded.
-        season_numbers = [
+        return [
             season["season_number"]
             for season in show.get("seasons", [])
             if season.get("season_number", 0) > 0
         ]
-        if not season_numbers:
-            continue
 
-        try:
-            episodes = fetch_episodes_for_show(show["id"], season_numbers)
-        # RequestException is the parent of HTTPError, ConnectionError and
-        # Timeout. Catching only HTTPError let a dropped connection kill a run
-        # that had already fetched 30,000 episodes.
-        except requests.RequestException as error:
-            print(f"  skipped {show.get('name')}: {error.__class__.__name__}")
-            continue
+    started = time.monotonic()
+    done = 0
+    targets = [(s, seasons_of(s)) for s in shows]
+    targets = [(s, nums) for s, nums in targets if nums]
+    print(f"Fetching episodes for {len(targets)} shows with {WORKERS} workers\n")
 
-        all_episodes.extend(episodes)
+    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+        futures = {
+            pool.submit(fetch_episodes_for_show, show["id"], nums): show
+            for show, nums in targets
+        }
+        for future in as_completed(futures):
+            done += 1
+            show = futures[future]
+            try:
+                all_episodes.extend(future.result())
+            # RequestException is the parent of HTTPError, ConnectionError and
+            # Timeout. Catching only HTTPError let a dropped connection kill a
+            # run that had already fetched 30,000 episodes.
+            except requests.RequestException as error:
+                print(f"  skipped {show.get('name')}: {error.__class__.__name__}")
 
-        if index % 25 == 0:
-            print(f"  {index}/{len(shows)} shows - {len(all_episodes)} episodes so far")
-            # Checkpoint. A crash at show 480 should not cost the first 479.
-            out.write_text(json.dumps(all_episodes, ensure_ascii=False), encoding="utf-8")
+            if done % 250 == 0:
+                rate = done / (time.monotonic() - started)
+                print(f"  {done}/{len(targets)} shows - {len(all_episodes):,} episodes "
+                      f"({rate:.1f} shows/s)")
+                # Checkpoint. A crash near the end should not cost the whole run.
+                out.write_text(json.dumps(all_episodes, ensure_ascii=False), encoding="utf-8")
 
     out.write_text(json.dumps(all_episodes, ensure_ascii=False), encoding="utf-8")
 

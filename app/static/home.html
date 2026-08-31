@@ -97,6 +97,28 @@
   .quote span { color: var(--accent); }
   .scroll-hint { margin-top: 44px; color: var(--muted); font-size: 13px; }
 
+  /* --- imagery ------------------------------------------------------------
+     Backgrounds sit behind a scrim rather than being dimmed with opacity, so
+     the artwork keeps its own contrast and only the text area is darkened. */
+  .hero-bg {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: cover; z-index: 0;
+  }
+  .hero::after {
+    /* Scrim: transparent at the edges so the particle field still reads,
+       dense behind the headline so the type stays legible. */
+    content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none;
+    background:
+      radial-gradient(58% 52% at 50% 42%, rgba(13,14,19,.90), rgba(13,14,19,.35) 70%, transparent),
+      linear-gradient(to bottom, transparent 60%, var(--bg));
+  }
+
+  /* An inline figure inside a normal section. */
+  .shot {
+    display: block; width: 100%; margin-top: 40px; border-radius: 16px;
+    border: 1px solid var(--line); box-shadow: 0 24px 60px rgba(0,0,0,.5);
+  }
+
   /* --- poster strip ------------------------------------------------------ */
   .strip { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-top: 40px; }
   .strip img {
@@ -115,7 +137,17 @@
     display: flex; align-items: center; justify-content: center;
     padding: 70px clamp(20px, 6vw, 80px) 0; overflow: hidden;
   }
-  .pin-inner { max-width: 1040px; width: 100%; text-align: center; }
+  .pin-bg {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: cover; z-index: 0;
+  }
+  .pin::after {
+    content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none;
+    background:
+      radial-gradient(64% 58% at 50% 48%, rgba(13,14,19,.88), rgba(13,14,19,.42) 72%, rgba(13,14,19,.72)),
+      linear-gradient(to bottom, var(--bg), transparent 22%, transparent 78%, var(--bg));
+  }
+  .pin-inner { max-width: 1040px; width: 100%; text-align: center; position: relative; z-index: 2; }
   .cover { position: relative; z-index: 10; background: var(--bg); }
   .cover::before {
     /* A soft lip so the covering section reads as a sheet sliding over,
@@ -141,6 +173,7 @@
   .card h3 { margin: 0 0 8px; font-size: 18px; letter-spacing: -.01em; }
   .card p { margin: 0; color: var(--muted); font-size: 15px; }
   .card .icon { font-size: 22px; margin-bottom: 12px; display: block; }
+  .card img.icon { width: 54px; height: 54px; margin-bottom: 10px; }
 
   /* --- compare ----------------------------------------------------------- */
   .compare { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-top: 36px; }
@@ -208,6 +241,7 @@
 
 <!-- 1 ................................................................. hero -->
 <section class="hero">
+  <img class="hero-bg" src="/static/img/hero-field.webp" alt="" fetchpriority="high">
   <div class="glow"></div>
   <div class="wrap reveal">
     <h1>Ask for the show<br>you actually want.</h1>
@@ -257,12 +291,16 @@
           because “a bit creepy” and “relentlessly creepy” are different requests.</p>
       </div>
     </div>
+    <img class="shot" src="/static/img/taxonomy-drawers.webp" loading="lazy" decoding="async"
+         alt="A wall of card-catalogue drawers, most with blank labels and only a few lit.">
   </div>
 </section>
 
 <!-- 3 ...................................................... PINNED: the axes -->
 <div class="pin-wrap">
   <div class="pin">
+    <img class="pin-bg" src="/static/img/prism-axes.webp" loading="lazy" decoding="async"
+         alt="A beam of white light entering a prism and separating into measured coloured bands.">
     <div class="pin-inner reveal">
       <div class="kicker">Every show, measured</div>
       <h2>The Haunting of Hill House</h2>
@@ -299,6 +337,8 @@
     </div>
     <p class="lede" style="margin-top:26px;font-size:16px">
       No “because you watched…”. An actual answer.</p>
+    <img class="shot" src="/static/img/explanation-threads.webp" loading="lazy" decoding="async"
+         alt="Two translucent forms joined by threads, bright where they match and faint where they differ.">
   </div>
 </section>
 
@@ -310,6 +350,8 @@
     <p class="lede">Found something almost right? Move a single axis. Keep the dread,
       drop the gore. Keep the setting, lose the twenty-season commitment.
       The catalogue re-ranks in under a millisecond.</p>
+    <img class="shot" src="/static/img/steering-sliders.webp" loading="lazy" decoding="async"
+         alt="A row of precision sliders on a dark panel, each set to a different position.">
     <div class="strip">
       <img src="https://image.tmdb.org/t/p/w185/nWPZb800NCGiDPNGsKCfY0w44Z2.jpg" alt="" loading="lazy">
       <img src="https://image.tmdb.org/t/p/w185/zcugNxDg59YwIf3dUHsrHmO7pc1.jpg" alt="" loading="lazy">
@@ -324,6 +366,8 @@
 <!-- 6 ................................................. PINNED: the catalogue -->
 <div class="pin-wrap" style="height:220vh">
   <div class="pin">
+    <img class="pin-bg" src="/static/img/catalogue-grid.webp" loading="lazy" decoding="async"
+         alt="A vast grid of tiles receding to the horizon, a scattering of them lit.">
     <div class="pin-inner reveal">
       <div class="kicker">Built on real data</div>
       <h2>500 shows. 46,264 episodes.</h2>
@@ -357,24 +401,24 @@
 
     <div class="grid">
       <div class="card">
-        <span class="icon">▲ ● ▼</span>
+        <img class="icon" src="/static/img/icon-vote.webp" loading="lazy" decoding="async" alt="Up, neutral and down vote controls">
         <h3>Vote on any axis</h3>
         <p>Too creepy, not creepy enough, or exactly right. The question is always
           whether the word describes the show — never whether you liked it.</p>
       </div>
       <div class="card">
-        <span class="icon">✍️</span>
+        <img class="icon" src="/static/img/icon-review.webp" loading="lazy" decoding="async" alt="A pen nib resting on a blank card">
         <h3>Write a review</h3>
         <p>Reviews are how the system learns what a show is actually like to watch.
           A synopsis says a house is haunted; only a viewer says it made them jump.</p>
       </div>
       <div class="card">
-        <span class="icon">🔖</span>
+        <img class="icon" src="/static/img/icon-watchlist.webp" loading="lazy" decoding="async" alt="A bookmark ribbon in a stack of tiles">
         <h3>Watchlist &amp; watched</h3>
         <p>Keep track of what you mean to watch and what you’ve finished.</p>
       </div>
       <div class="card">
-        <span class="icon">🕘</span>
+        <img class="icon" src="/static/img/icon-history.webp" loading="lazy" decoding="async" alt="A clock with a hand sweeping backwards">
         <h3>Viewing history</h3>
         <p>Everything you’ve looked at, so you can find your way back to it.</p>
       </div>
