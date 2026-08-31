@@ -510,3 +510,65 @@ MAE is unchanged at 0.179 with 36/37 axes beating baseline, because that is
 measured over the 50 labelled shows. What cannot be measured from those 50 is
 how well the model extrapolates to the other 3,492. More labels are now the
 binding constraint on everything downstream.
+
+---
+
+# v0.9 — batch 3, and the sampler that picks its own targets
+
+78 labelled shows. **37/37 axes now beat the mean baseline**, mean MAE 0.174.
+
+## The sampler no longer fights the last battle
+
+`export_coverage.py` used to carry a fixed evidence dictionary aimed at the axes
+that were weak after batch 1 — horror, romance, historical, fantasy, thriller,
+cynical. Once those closed, it kept hunting them and ignored the axes that had
+quietly become the weakest.
+
+It now measures label variance at run time and picks the six weakest judgement
+axes to chase (`pick_targets`). Fact axes are excluded, because TMDB settles
+them and low variance there costs nothing. Batch 3 selected itself:
+
+    jumpscares, dialogue_driven, plot_complexity, ensemble,
+    emotional_intensity, sentimental
+
+## Result
+
+| Axis | R² after batch 2 | R² after batch 3 |
+|---|---|---|
+| `jumpscares` | 0.245 | **0.556** |
+| `horror` | 0.343 | **0.570** |
+| `creepy` | 0.299 | **0.513** |
+| `plot_twists` | — | **0.362** |
+| `dialogue_driven` | — | **0.339** |
+| `plot_complexity` | — | **0.316** |
+
+`jumpscares` more than doubling is the one that matters: it is the axis the
+project's motivating query is built on, and it had zero variance two batches
+ago. The batch deliberately paired horror titles that *do* rely on shocks
+(Marianne, GHOUL, Haunted) against ones whose own reviews say they do not
+(Archive 81, School Tales) — the axis cannot be learned from horror shows alone,
+only from horror shows that differ on it.
+
+Held-out, on shows never seen in training:
+
+| Show | jumpscares | horror | creepy | dialogue_driven |
+|---|---|---|---|---|
+| The Fall of the House of Usher | 0.30 | 0.50 | 0.54 | 0.66 |
+| Dark | 0.31 | 0.45 | 0.52 | 0.59 |
+| Midnight Mass | 0.28 | 0.44 | 0.47 | 0.56 |
+| Better Call Saul | **0.00** | **0.00** | 0.03 | **0.74** |
+
+Better Call Saul is the useful case: a talky legal drama scored at zero on all
+three horror axes and high on dialogue, with no horror example resembling it
+anywhere in training.
+
+## Still weakest
+
+`sentimental` (0.053), `absurd` (0.084), `earnest` (0.091) and `slow_burn`
+(0.107). These are diffuse tonal qualities with no keyword vocabulary to sample
+against — the evidence terms reach them only obliquely, through subject matter
+that tends to accompany them. They are the natural target for batch 4, and it is
+an open question whether keyword-based sampling can reach them at all.
+
+`documentary` sits at 0.012 and should be ignored: it is a fact axis, written
+from TMDB rather than predicted, so its regression score is meaningless.

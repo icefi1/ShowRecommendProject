@@ -37,19 +37,79 @@ from labelling.schema import AXIS_NAMES  # noqa: E402
 # Keyword evidence for the axes batch 1 could not teach. These are search terms
 # over TMDB keywords, not axis definitions - they only have to FIND candidate
 # shows, and the annotator still scores each one on its merits.
+# Keyword evidence for finding candidate shows, per axis. These are search
+# terms over TMDB keywords, not axis definitions - they only have to SURFACE
+# plausible candidates, and the annotator still scores each show on its merits.
+#
+# Deliberately broader than the axes currently weak. Which axes get targeted is
+# decided at run time from measured label variance (see pick_targets), so a dict
+# that only covered today's gaps would leave the sampler fighting the last
+# battle once those gaps close - which is exactly what happened after batch 2.
 AXIS_EVIDENCE = {
     "horror": ["horror", "slasher", "zombie", "vampire", "demon", "haunted",
                "ghost", "monster", "supernatural", "gore", "creature"],
     "romance": ["romance", "romantic", "love triangle", "dating", "wedding",
-                "marriage", "relationship", "obsessive love", "dark romance"],
+                "marriage", "relationship", "obsessive love", "romcom"],
     "historical": ["period drama", "historical", "world war", "1940s", "1960s",
                    "based on true story", "british history", "monarchy", "war"],
     "fantasy": ["magic", "dragon", "witch", "wizard", "fantasy world",
-                "mythology", "sword and sorcery", "high fantasy"],
+                "mythology", "sword and sorcery", "high fantasy", "isekai"],
     "thriller": ["thriller", "psychological thriller", "conspiracy", "espionage",
                  "spy", "kidnapping", "manhunt", "survival"],
     "cynical": ["satire", "dark comedy", "corruption", "dystopia", "black comedy"],
+
+    # Axes with no direct keyword vocabulary in TMDB - the original finding.
+    # These terms reach them obliquely, through subject matter that tends to
+    # come with the quality.
+    "jumpscares": ["supernatural horror", "haunted house", "slasher", "ghost",
+                   "possession", "found footage", "teen horror"],
+    "dialogue_driven": ["courtroom", "lawyer", "politics", "talk show", "sitcom",
+                        "workplace comedy", "interview", "negotiation", "trial"],
+    "plot_complexity": ["conspiracy", "time travel", "parallel world", "amnesia",
+                        "multiple timelines", "unreliable narrator", "heist"],
+    "plot_twists": ["twist ending", "murder mystery", "whodunit", "betrayal",
+                    "secret identity", "double agent", "revelation"],
+    "ensemble": ["ensemble cast", "family drama", "group of friends", "workplace",
+                 "high school", "anthology", "large family"],
+    "emotional_intensity": ["tragedy", "grief", "terminal illness", "death of a child",
+                            "melodrama", "loss", "war crime", "addiction"],
+    "melancholy": ["nostalgia", "loneliness", "memories", "coming of age",
+                   "slice of life", "aging", "regret"],
+    "sentimental": ["heartfelt", "feelgood", "family", "friendship", "reunion",
+                    "inspirational", "healing"],
 }
+
+# Axes settled by TMDB rather than judged. They are not votable and are written
+# straight from the catalogue, so low label variance on them costs nothing and
+# they must not be chased.
+try:
+    from labelling.schema import FACT_AXES
+except ImportError:  # running as a script from inside labelling/
+    FACT_AXES = []
+
+
+def pick_targets(rows, how_many=6):
+    """
+    Choose which axes this batch should chase, from measured label variance.
+
+    An axis the existing labels barely vary on teaches the model nothing, so the
+    weakest are the ones worth feeding. Only axes with evidence terms can
+    actually be searched for, and fact axes are excluded because TMDB settles
+    them.
+    """
+    if not rows:
+        return list(AXIS_EVIDENCE)[:how_many]
+
+    spreads = []
+    for axis in AXIS_EVIDENCE:
+        if axis in FACT_AXES:
+            continue
+        values = [r["labels"][axis] for r in rows if axis in r["labels"]]
+        if values:
+            spreads.append((st.pstdev(values), axis))
+
+    spreads.sort()
+    return [axis for _, axis in spreads[:how_many]]
 
 
 def report_current_variance():
@@ -76,7 +136,7 @@ def report_current_variance():
         weak.add(axis)
 
     print()
-    return weak
+    return rows
 
 
 def main():
@@ -85,7 +145,9 @@ def main():
     parser.add_argument("--out", default="batch.txt")
     args = parser.parse_args()
 
-    report_current_variance()
+    rows = report_current_variance()
+    targets = pick_targets(rows)
+    print(f"  Targeting this batch at: {', '.join(targets)}\n")
 
     shows = json.loads((ROOT / "tmdb" / "shows_raw.json").read_text(encoding="utf-8"))
 
@@ -98,14 +160,15 @@ def main():
 
     # Score each unlabelled show for how much evidence it carries per target
     # axis, then round-robin across axes so no single axis dominates the batch.
-    by_axis = {axis: [] for axis in AXIS_EVIDENCE}
+    by_axis = {axis: [] for axis in targets}
     for show in shows:
         if show["id"] in labelled:
             continue
         keywords = " ".join(
             k["name"].lower() for k in show.get("keywords", {}).get("results", [])
         )
-        for axis, terms in AXIS_EVIDENCE.items():
+        for axis in targets:
+            terms = AXIS_EVIDENCE[axis]
             hits = sum(1 for term in terms if term in keywords)
             if hits:
                 by_axis[axis].append((hits, show.get("vote_count", 0), show))
