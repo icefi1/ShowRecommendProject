@@ -44,18 +44,23 @@ DEFAULT_WEIGHTS = {"genre": 0.25, "keywords": 0.55, "structure": 0.20}
 MATURITY_PENALTY = 0.5
 
 # Human phrasing for structure axes, used when explaining a result.
-# (axis, wording when the result is higher, wording when lower)
+# (axis: wording when the result is higher, wording when lower)
+#
+# Each phrase carries its own verb. The old table stored bare noun phrases and
+# the sentence was built as "but is " + phrase, which produced "but is shorter
+# episodes" and "but is more names and factions to track" - ungrammatical for
+# every count-noun axis. Owning the verb per axis fixes that with no extra logic.
 STRUCTURE_PHRASING = {
-    "episode_count": ("far more episodes", "far fewer episodes"),
-    "season_count": ("many more seasons", "many fewer seasons"),
-    "episode_length": ("longer episodes", "shorter episodes"),
-    "maturity": ("more adult", "less adult"),
-    "audience_rating": ("better reviewed", "less well reviewed"),
-    "is_miniseries": ("a self-contained miniseries", "an ongoing series"),
-    "rating_stdev": ("much more variable episode to episode", "much more consistent"),
-    "slow_burn_slope": ("more of a slow burn", "stronger from the start"),
-    "finale_delta": ("more built around its finales", "less finale-driven"),
-    "vote_peak_ratio": ("more centred on standout episodes", "more evenly watched"),
+    "episode_count": ("has far more episodes", "has far fewer episodes"),
+    "season_count": ("has many more seasons", "has many fewer seasons"),
+    "episode_length": ("has longer episodes", "has shorter episodes"),
+    "maturity": ("is more adult", "is less adult"),
+    "audience_rating": ("is better reviewed", "is less well reviewed"),
+    "is_miniseries": ("is a self-contained miniseries", "is an ongoing series"),
+    "rating_stdev": ("is much more variable episode to episode", "is much more consistent"),
+    "slow_burn_slope": ("is more of a slow burn", "is stronger from the start"),
+    "finale_delta": ("is more built around its finales", "is less finale-driven"),
+    "vote_peak_ratio": ("is more centred on standout episodes", "is more evenly watched"),
     # Measured, not assumed: this was built expecting it to separate procedurals
     # (fresh cast weekly) from serialised drama (standing cast). It does not.
     # TMDB's guest_stars is the per-episode supporting cast credit, so it tracks
@@ -63,10 +68,50 @@ STRUCTURE_PHRASING = {
     # (19.2 vs 13.2 average). Phrased here as what it actually measures. A real
     # churn measure needs guest star identities across episodes, which
     # fetch_episodes.py currently discards - see docs/feature_schema.md.
-    "guest_star_mean": ("a larger ensemble cast", "a tighter core cast"),
-    "entity_density": ("more names and factions to track", "a simpler cast of characters"),
-    "runtime_stdev": ("more varied episode lengths", "more uniform episode lengths"),
+    "guest_star_mean": ("has a larger ensemble cast", "has a tighter core cast"),
+    "entity_density": ("has more names and factions to track", "has a simpler cast of characters"),
+    "runtime_stdev": ("has more varied episode lengths", "has more uniform episode lengths"),
 }
+
+
+# Human phrasing for TMDB's 15 television genres.
+# (genre: form used as a modifier, form used as the noun)
+#
+# Two forms because an explanation reads better as "both crime dramas" than as
+# "both crime and drama". The broadest shared genre supplies the noun and the
+# most specific supplies the modifier - see _genre_clause.
+#
+# The slashes on the conflated genres are deliberate: TMDB really does file
+# science fiction and fantasy under one heading, and war alongside politics.
+# Writing them out that way keeps the interface honest about the taxonomy it
+# inherited, which is the same limitation the interpretable axes exist to fix.
+GENRE_PHRASING = {
+    "Action & Adventure": ("action-adventure", "action-adventure shows"),
+    "Animation": ("animated", "animated shows"),
+    "Comedy": ("comedy", "comedies"),
+    "Crime": ("crime", "crime shows"),
+    "Documentary": ("documentary", "documentaries"),
+    "Drama": ("drama", "dramas"),
+    "Family": ("family", "family shows"),
+    "Kids": ("kids'", "kids' shows"),
+    "Mystery": ("mystery", "mysteries"),
+    "Reality": ("reality", "reality shows"),
+    "Sci-Fi & Fantasy": ("sci-fi/fantasy", "sci-fi/fantasy shows"),
+    "Soap": ("soap", "soaps"),
+    "Talk": ("talk", "talk shows"),
+    "War & Politics": ("war/politics", "war and politics shows"),
+    "Western": ("western", "westerns"),
+}
+
+# How many structural differences an explanation may end with.
+#
+# It was two. One is a trade-off made on purpose: the structure block is the
+# least interesting thing about a recommendation - nobody chooses a show for its
+# episode-length percentile - and every structural clause pushes the shared
+# genre and subject further from the start of the sentence, which is where the
+# eye lands. Losing a second difference costs some information; burying the
+# reason the show was recommended costs more.
+MAX_STRUCTURE_POINTS = 1
 
 
 class FeatureSpace:
@@ -97,6 +142,14 @@ class FeatureSpace:
         # the penalty is one vector op rather than a lookup per candidate.
         maturity_col = self.block_labels["structure"].index("maturity")
         self.maturity = self.blocks["structure"][:, maturity_col].astype(np.float32)
+
+        # How many shows carry each genre. Used only when writing explanations:
+        # the commonest shared genre is the broadest description of the pair
+        # ("dramas") and the rarest is the most specific ("crime"), so the pair
+        # reads as one noun phrase. Same reasoning as the IDF weighting on
+        # keywords - rarer means more informative - reused on a block that is
+        # binary and therefore has no IDF of its own.
+        self.genre_counts = self.blocks["genre"].sum(axis=0)
 
     # ------------------------------------------------------------ searching
 
@@ -253,44 +306,131 @@ class FeatureSpace:
 
     # ----------------------------------------------------------- explanation
 
-    def explain(self, query_index, result_index, max_points=3):
+    def _is_provenance(self, term):
         """
-        Say in words why this result came back (report S6.6).
+        True for keywords describing where a show came from rather than what it
+        is like to watch: "based on novel or book", "based on true story",
+        "remake", and the 22 other variants in the vocabulary.
 
-        Two ingredients: what the two shows share (the highest-IDF keywords
-        present in both, which are the most specific things they have in
-        common) and how they differ structurally (the largest gaps on named
-        axes). Both fall directly out of the representation - there is no
-        separate explanation model that could disagree with the ranking.
+        They are the highest-frequency keywords in the catalogue, so they match
+        constantly and say nothing a viewer chose the show for. Note this hides
+        them from the EXPLANATION only - they still carry their IDF weight in
+        the vector and still influence ranking. Dropping them from the
+        vocabulary outright is the stronger option and would change results;
+        that is an ablation for the evaluation chapter, not a silent change
+        here.
         """
-        keyword_matrix = self.blocks["keywords"]
+        return term.startswith("based on") or "remake" in term
+
+    def _genre_clause(self, query_index, result_index):
+        """
+        "both crime dramas" - the genres the two shows have in common.
+
+        The genre block is binary, so shared genres are an element-wise minimum
+        exactly as with keywords. Which two to name is decided by catalogue
+        frequency: the commonest shared genre becomes the noun because it is the
+        broadest true statement about the pair, and the rarest becomes the
+        modifier because it is the most specific. With Drama on 1,707 shows and
+        Crime on 621, a pair sharing both reads "both crime dramas" rather than
+        the less informative "both drama crimes".
+        """
+        names = self.block_labels["genre"]
+        shared = np.minimum(self.blocks["genre"][query_index], self.blocks["genre"][result_index])
+        positions = [i for i in range(len(names)) if shared[i] > 0]
+        if not positions:
+            return ""
+
+        # Commonest first, so positions[0] is the noun and positions[-1] the modifier.
+        positions.sort(key=lambda i: -self.genre_counts[i])
+        head_genre = names[positions[0]]
+        # A genre TMDB added after this table was written still gets a sentence.
+        _, noun = GENRE_PHRASING.get(head_genre, (head_genre.lower(), head_genre.lower() + " shows"))
+
+        if len(positions) == 1:
+            return f"both {noun}"
+
+        modifier_genre = names[positions[-1]]
+        modifier, _ = GENRE_PHRASING.get(modifier_genre, (modifier_genre.lower(), ""))
+        return f"both {modifier} {noun}"
+
+    def _keyword_clause(self, query_index, result_index, max_keywords):
+        """"shares drug cartels, outlaw" - the rarest keywords present in both."""
+        matrix = self.blocks["keywords"]
         vocabulary = self.block_labels["keywords"]
 
-        shared = np.minimum(keyword_matrix[query_index], keyword_matrix[result_index])
+        shared = np.minimum(matrix[query_index], matrix[result_index])
+        terms = []
         # Highest weight = rarest shared keyword = most informative.
-        top_shared = [vocabulary[i] for i in np.argsort(-shared)[:max_points] if shared[i] > 0]
+        for position in np.argsort(-shared):
+            if shared[position] <= 0:
+                break
+            term = vocabulary[position]
+            if self._is_provenance(term):
+                continue
+            terms.append(term)
+            if len(terms) >= max_keywords:
+                break
 
-        structure_matrix = self.blocks["structure"]
-        structure_names = self.block_labels["structure"]
-        deltas = structure_matrix[result_index] - structure_matrix[query_index]
+        return "shares " + ", ".join(terms) if terms else ""
 
-        differences = []
+    def _structure_clause(self, query_index, result_index):
+        """"but has shorter episodes" - the largest difference in form."""
+        matrix = self.blocks["structure"]
+        names = self.block_labels["structure"]
+        deltas = matrix[result_index] - matrix[query_index]
+
+        phrases = []
         for position in np.argsort(-np.abs(deltas)):
-            axis = structure_names[position]
+            axis = names[position]
             delta = float(deltas[position])
             # Below this the two shows are effectively the same on that axis and
             # saying so out loud would be noise.
             if abs(delta) < 0.25 or axis not in STRUCTURE_PHRASING:
                 continue
             higher, lower = STRUCTURE_PHRASING[axis]
-            differences.append(higher if delta > 0 else lower)
-            if len(differences) >= 2:
+            phrases.append(higher if delta > 0 else lower)
+            if len(phrases) >= MAX_STRUCTURE_POINTS:
                 break
 
-        parts = []
-        if top_shared:
-            parts.append("shares " + ", ".join(top_shared))
-        if differences:
-            parts.append("but is " + " and ".join(differences))
+        return "but " + " and ".join(phrases) if phrases else ""
 
-        return "; ".join(parts) if parts else "similar overall profile"
+    def explain(self, query_index, result_index, max_keywords=3):
+        """
+        Say in words why this result came back (report S6.6).
+
+        Three clauses, always in this order, because that is the order a viewer
+        cares about them in:
+
+            both crime dramas; shares drug cartels, outlaw; but has shorter episodes
+            \_____ genre _____/  \______ keywords _______/  \____ structure ____/
+
+        Ordering is the whole point of this method. Measured over 600
+        explanations, a quarter of them opened with "but is ..." and listed only
+        structural differences - the reader was told how two shows differ before
+        being told they had anything in common, or in those cases instead of it.
+        Episode-length percentiles are not why anyone watches a television
+        programme, so structure is now a trailing qualifier and never the lead.
+
+        Every clause is read straight out of the vectors that did the ranking.
+        There is no separate explanation model that could disagree with the
+        result it is explaining, which is what makes this an explanation rather
+        than a plausible-sounding caption.
+        """
+        parts = [
+            self._genre_clause(query_index, result_index),
+            self._keyword_clause(query_index, result_index, max_keywords),
+        ]
+        parts = [clause for clause in parts if clause]
+
+        if not parts:
+            # Nothing shared in either block, so the result is here on form
+            # alone. Listing its structural differences would be the failure
+            # this ordering exists to remove: an explanation that never says why
+            # the show was recommended. Say what actually happened instead.
+            return "no shared genre or subject - matched on form alone"
+
+        structure = self._structure_clause(query_index, result_index)
+        if structure:
+            parts.append(structure)
+
+        return "; ".join(parts)

@@ -25,6 +25,7 @@ python tmdb/fetch_episodes.py       # ~93,447 episodes, ~6 min
 python tmdb/episode_features.py     # per-show pacing features
 python app/build_space.py           # feature_space.npz + .json
 python training/train_model.py      # model.joblib, predictions.csv, report.md
+python evaluation/explanation_audit.py   # explanation quality, fixed seed
 ```
 
 ---
@@ -54,6 +55,7 @@ tmdb/          ingestion + episode-derived pacing features
 labelling/     schema (source of truth), batch export, labels.jsonl
 training/      multi-label ridge over frozen sentence-transformer embeddings
 app/           FastAPI + similarity engine + accounts + static frontend
+evaluation/    rerunnable audits of what the engine outputs
 docs/          feature_schema.md is the running research log
 ```
 
@@ -127,54 +129,43 @@ Ignore `documentary` 0.012 — it's a fact axis, its regression score is meaning
 
 ---
 
-## 6. IN FLIGHT — explanation ordering (not started, fully specified)
+## 6. DONE — explanation ordering
 
-**User request:** explanations must read **genre → keywords → structure**. As a
-user they don't care about episode length or "based on a novel"; a result whose
-explanation is purely structural feels useless.
+Explanations now read **genre → keywords → structure**, which was the request.
+Written up in full as `docs/feature_schema.md` v0.10; the short version:
 
-**Measured on 600 explanations from a 120-show random sample:**
+    both crime dramas; shares drug cartels, outlaw; but has shorter episodes
 
-- **18% have no shared-trait clause at all** — they open with "but is…" and
-  describe only structural differences.
-- Provenance keywords leak through constantly: `based on novel or book`,
-  `based on true story`, `based on manga`, `based on comic`, `based on video game`,
-  `based on webcomic or webtoon`, `remake`.
+- **Genre clause added** to `app/similarity.py` → `_genre_clause()`. There was
+  none before, which is why genre-driven matches were being explained by
+  structural differences. Commonest shared genre supplies the noun, rarest
+  supplies the modifier ("crime dramas", not "drama crimes").
+- **Provenance keywords suppressed** in the explanation only — the 24 `based
+  on ...`/`remake` terms. They still carry IDF weight and still affect ranking;
+  removing them from the vocabulary is left as an ablation.
+- **Structure capped at one trailing difference** (was two), and each phrase now
+  carries its own verb, fixing "but is shorter episodes".
+- **No shared genre and no shared keyword** returns "no shared genre or subject
+  - matched on form alone" rather than a structure-only sentence.
 
-Real examples of the failure:
+Measured with `evaluation/explanation_audit.py` (fixed seed, 120 shows × 5
+results = 600 explanations, rerunnable):
 
-```
-Misty            but is much more consistent and better reviewed
-Antihero         but is a larger ensemble cast and better reviewed
-Queen            but is shorter episodes and stronger from the start
-Baby Bandito     shares based on true story; but is an ongoing series...
-```
+| | Before | After |
+|---|---|---|
+| Names a shared genre | 0.0% | **95.3%** |
+| **No shared clause at all** | **25.0%** | **4.3%** |
+| Cites a provenance keyword | 9.7% | **0.0%** |
 
-**The fix, in `app/similarity.py` → `explain()`:**
-
-1. **Add a genre clause first.** There is currently *no* genre component, which
-   is why a genre-driven match gets explained by structural differences. Use
-   `self.blocks["genre"]` — shared TMDB genres between query and result.
-2. **Keywords second**, as now (element-wise min of TF-IDF rows, highest IDF first).
-3. **Filter provenance keywords** — anything starting `based on`, plus `remake`.
-   They describe where a show came from, not what watching it is like.
-4. **Structure last**, and only as a trailing qualifier. Consider suppressing it
-   entirely when there is no genre or keyword clause, rather than emitting a
-   structure-only sentence.
-
-Target shape: `both crime dramas; shares drug cartels, outlaw; but is shorter`
-
-`STRUCTURE_PHRASING` at the top of `similarity.py` holds the wording for
-structure axes. Note `explain()` is also used by the detail panel and by
-`/api/similar`; preference-mode results have no explanation at all (no query
-show to diff against) — that gap is still open.
-
----
+The residual 4.3% is real missing data, not a phrasing bug: **87 shows (2.5%)
+have neither a TMDB genre nor a surviving keyword**, and 19.3% have no keyword.
 
 ## 7. Other open items
 
-- **Preference mode has no explanations.** Same mechanism would work diffed
-  against dial settings.
+- **Preference mode has no explanations.** Now the only open half of S6.6:
+  `explain()` needs two catalogue rows to diff, and a dial query has no query
+  show. The same three-clause shape would work diffed against the dial settings
+  themselves (chosen genres, target structure values).
 - **The green number on result cards** is raw cosine × 100 and moves with the
   weight sliders. Honest but confusing; worth relabelling.
 - **Wire predicted axes into ranking** — blocked on label count. Probably needs

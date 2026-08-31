@@ -572,3 +572,89 @@ an open question whether keyword-based sampling can reach them at all.
 
 `documentary` sits at 0.012 and should be ignored: it is a fact axis, written
 from TMDB rather than predicted, so its regression score is meaningless.
+
+---
+
+# v0.10 — explanation ordering
+
+An explanation is the contribution, so it gets measured like everything else.
+`evaluation/explanation_audit.py` samples 120 shows on a fixed seed, takes the
+top 5 results for each, and counts what the 600 resulting explanations actually
+say. Rerunnable, so the numbers below are reproducible rather than impressions.
+
+## What was wrong
+
+| | Before | After |
+|---|---|---|
+| Explanation names a shared genre | 0.0% | **95.3%** |
+| Explanation names a shared keyword | 75.0% | 70.7% |
+| **No shared clause at all** | **25.0%** | **4.3%** |
+| Cites a provenance keyword | 9.7% | **0.0%** |
+
+A quarter of explanations opened with `but is ...` and listed only differences.
+The reader was told how two shows diverge before — or instead of — being told
+they had anything in common:
+
+    The Loud House -> Sharkdog: but is more evenly watched and more names
+                                and factions to track
+
+Both are animated children's comedies. The engine knew that; the explanation
+could not say it, because `explain()` read the keyword and structure blocks and
+never touched the genre block at all. Nothing was broken in the ranking — the
+sentence just described the least interesting axis available.
+
+## The fix
+
+Three clauses, fixed order, genre first:
+
+    both crime dramas; shares drug cartels, outlaw; but has shorter episodes
+    \_____ genre _____/ \______ keywords ________/ \____ structure _______/
+
+1. **Genre clause, new.** Shared genres are an element-wise minimum on the
+   binary genre block, the same operation already used on keywords. Which two
+   to name is decided by catalogue frequency: the commonest shared genre
+   becomes the noun (the broadest true statement about the pair) and the rarest
+   becomes the modifier (the most specific). Drama is on 1,707 shows and Crime
+   on 621, so a pair sharing both reads *both crime dramas*, not *both drama
+   crimes*. This reuses the rarity-is-informativeness principle from the IDF
+   keyword weighting on a block that is binary and has no IDF of its own.
+
+2. **Keywords second**, unchanged apart from the filter below.
+
+3. **Structure last, and capped at one difference** (was two). Trade-off stated
+   plainly: a second difference carries real information, but every structural
+   clause pushes the shared genre and subject further from the start of the
+   sentence. Nobody chooses a programme by its episode-length percentile.
+
+**Provenance keywords are suppressed.** 24 vocabulary terms describe where a
+show came from rather than what watching it is like — every `based on ...`
+variant plus `remake`. They are among the commonest keywords in the catalogue,
+so they matched constantly and explained nothing: *Shafted* was recommended
+four shows on the sole shared ground of `remake`. They are hidden from the
+explanation only; they keep their IDF weight and still influence ranking.
+Dropping them from the vocabulary outright would change results and is left as
+an ablation for the evaluation chapter rather than made silently here.
+
+**Grammar.** `STRUCTURE_PHRASING` stored bare noun phrases and the sentence was
+built as `"but is " + phrase`, which produced *but is shorter episodes* and *but
+is more names and factions to track*. Each phrase now carries its own verb.
+
+## The honest failure case
+
+When two shows share no genre and no keyword, the result is there on structural
+form alone. Listing its structural differences would be exactly the failure this
+ordering exists to remove, so the explanation says what happened instead:
+
+    no shared genre or subject - matched on form alone
+
+This is a data limitation surfaced rather than papered over. **87 shows (2.5% of
+the catalogue) carry neither a TMDB genre nor a single surviving keyword**, and
+19.3% carry no keyword — those records cannot produce a substantive explanation
+from catalogue data at any ordering. They are the strongest argument for the
+predicted axes: a model reading text can describe a show TMDB never labelled.
+
+## Still open
+
+Preference-mode results have no explanation at all — there is no query show to
+diff against. The same three-clause mechanism would work against the dial
+settings themselves.
