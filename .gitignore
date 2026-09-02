@@ -16,6 +16,10 @@ training/model.joblib
 training/predictions.csv
 training/report.md
 
+# Evaluation outputs - regenerate with the scripts in evaluation/
+evaluation/embeddings.npz
+evaluation/retrieval_report.md
+
 app/crowd.db
 app/crowd.db-wal
 app/crowd.db-shm
