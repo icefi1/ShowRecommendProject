@@ -3,39 +3,44 @@ Retrieval accuracy against TMDB's own related-titles lists (report S9.1, S9.2).
 
 The question this answers: when the system returns five shows, how many of them
 does an independent source also consider related? That number is meaningless on
-its own, so it is measured for six systems at once and reported side by side.
+its own, so seven systems are measured at once and reported side by side.
 
   1. blocked        the engine as deployed - per-block cosine, weighted, plus
                     the certificate penalty
-  2. flat           the same vectors concatenated into one list and compared
+  2. blocked-cert   the same engine with the certificate penalty switched off,
+                    which is the only measurement MATURITY_PENALTY has ever had
+  3. flat           the same vectors concatenated into one list and compared
                     with a single cosine (report S9.5 ablation: does blocking
                     earn its place?)
-  3. embeddings     show text through a frozen sentence transformer, plain
+  4. embeddings     show text through a frozen sentence transformer, plain
                     cosine (report S9.1 baseline: the black box this project
                     has to stay competitive with)
-  4. embeddings+m   the same baseline with the certificate penalty bolted on,
+  5. embeddings+m   the same baseline with the certificate penalty bolted on,
                     which separates "our feature space helps" from "the age
                     rating rule helps"
-  5. popular        the most popular shows in the catalogue, ignoring the query
+  6. popular        the most popular shows in the catalogue, ignoring the query
                     entirely - the standard non-personalised control
-  6. random         five shows drawn at random - what chance looks like
+  7. random         five shows drawn at random - what chance looks like
 
-WHAT THE GROUND TRUTH IS, AND WHAT IT IS NOT
+TWO ANSWER KEYS, AND WHAT EACH IS WORTH
 
-`fetch_shows.py` stored TMDB's own "recommendations" list for every show, so an
-answer key already exists for 94% of the catalogue at no extra cost. But it is
-another recommender's opinion, built partly from user behaviour, so scoring well
-here means agreeing with TMDB. That is a floor - evidence the space is not
-returning noise - and not the project's claim, which is about steering and
-explanation and is tested with people instead. Reported precision should be read
-in that spirit.
+`--truth tmdb_recommended` (default) uses TMDB's own related-titles list, which
+fetch_shows.py already stored, so it covers 94% of the catalogue at no cost. But
+it is another recommender's opinion, built partly from user behaviour: scoring
+well means agreeing with TMDB. Read it as a floor - evidence the space is not
+returning noise - rather than as the project's claim.
+
+`--truth human` uses relevance judgements collected by evaluation/judge.py. Far
+fewer queries, but it is people answering the question the project actually
+asks. That key carries the claim; the TMDB one guards against nonsense.
 
 Only shows with at least k related titles inside the catalogue are queried at
 each k, so a perfect system could score 1.0 rather than being capped by missing
-answers.
+answers. Under the human key the pool depth sets k instead.
 
 Run:  venv\\Scripts\\python evaluation/retrieval_accuracy.py
       venv\\Scripts\\python evaluation/retrieval_accuracy.py --queries 200
+      venv\\Scripts\\python evaluation/retrieval_accuracy.py --truth human
 """
 
 import argparse
@@ -60,6 +65,11 @@ K_VALUES = (5, 10)
 # Encoding 3,542 shows takes a couple of minutes on CPU and never changes unless
 # the catalogue does, so it is cached next to this script.
 EMBEDDING_CACHE = HERE / "embeddings.npz"
+
+# Written by evaluation/judge.py and read back here as an answer key. They live
+# in this module so both scripts agree on where they are without a third file.
+POOL_FILE = HERE / "judging_pool.json"
+JUDGEMENTS_FILE = HERE / "judgements.jsonl"
 
 SEED = 20250831
 
@@ -95,6 +105,119 @@ def ground_truth(space, field):
     return truth
 
 
+# ------------------------------------------------------------- human answer key
+
+
+def human_truth(space):
+    """
+    Relevance as people judged it, from evaluation/judgements.jsonl.
+
+    A candidate counts as relevant when the MAJORITY of judges who saw that pair
+    said yes. "maybe" is counted as not relevant, which is the conservative
+    reading: it keeps precision honest rather than inflating every system with
+    half-hearted matches. Ties go to not relevant for the same reason.
+
+    Returns the truth map, the rows that were judged, the pool depth and the
+    systems that were pooled - precision can only be scored down to the depth
+    that was judged,
+    because anything deeper was never shown to anybody and would be silently
+    counted as wrong.
+    """
+    if not JUDGEMENTS_FILE.exists() or not POOL_FILE.exists():
+        raise SystemExit(
+            "No human judgements yet. Collect some first:\n"
+            r"  venv\Scripts\python evaluation/judge.py --judge yourname"
+        )
+
+    pool = json.loads(POOL_FILE.read_text(encoding="utf-8"))
+    records = [json.loads(line) for line in
+               JUDGEMENTS_FILE.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+    votes = {}
+    for record in records:
+        pair = (record["query_id"], record["candidate_id"])
+        votes.setdefault(pair, []).append(record["verdict"])
+
+    truth, judged_rows = {}, []
+    for entry in pool["entries"]:
+        query_id = entry["query_id"]
+        if query_id not in space.index_by_id:
+            continue
+        # A query counts as judged once any of its candidates has a verdict, so
+        # a half-finished session still contributes what it has.
+        seen = [c for c in entry["candidates"] if (query_id, c) in votes]
+        if not seen:
+            continue
+
+        row = space.index_by_id[query_id]
+        judged_rows.append(row)
+        relevant = set()
+        for candidate_id in seen:
+            verdicts = votes[(query_id, candidate_id)]
+            yes = sum(1 for v in verdicts if v == "yes")
+            if yes * 2 > len(verdicts) and candidate_id in space.index_by_id:
+                relevant.add(space.index_by_id[candidate_id])
+        truth[row] = relevant
+
+    return truth, sorted(judged_rows), pool["depth"], records, pool.get("systems", [])
+
+
+def cohens_kappa(pairs_a, pairs_b):
+    """
+    Agreement between two judges, corrected for agreeing by chance.
+
+    Raw agreement flatters: if both judges say "no" to 80% of everything, they
+    agree 80% of the time by accident. Kappa subtracts that expected agreement:
+
+        kappa = (observed - expected) / (1 - expected)
+
+    0 is chance, 1 is perfect. Landis and Koch (1977) read 0.41-0.60 as
+    moderate and 0.61-0.80 as substantial, which is the scale usually quoted.
+    Written out rather than imported because it is four lines and has to be
+    defended in a viva.
+    """
+    shared = sorted(set(pairs_a) & set(pairs_b))
+    if not shared:
+        return None, 0
+
+    a = [pairs_a[p] for p in shared]
+    b = [pairs_b[p] for p in shared]
+    observed = sum(1 for x, y in zip(a, b) if x == y) / len(shared)
+
+    expected = 0.0
+    for verdict in set(a) | set(b):
+        expected += (a.count(verdict) / len(a)) * (b.count(verdict) / len(b))
+
+    if expected >= 1.0:
+        return 1.0, len(shared)
+    return (observed - expected) / (1 - expected), len(shared)
+
+
+def report_agreement(records):
+    """Pairwise agreement between judges, on the yes/not-yes call that scoring uses."""
+    by_judge = {}
+    for record in records:
+        by_judge.setdefault(record["judge"], {})[
+            (record["query_id"], record["candidate_id"])] = (
+            "yes" if record["verdict"] == "yes" else "not-yes")
+
+    names = sorted(by_judge)
+    if len(names) < 2:
+        print(f"  one judge ({names[0] if names else 'none'}) - "
+              "no agreement to report. A second judge on the same\n"
+              "  pool is what turns these judgements from one person's opinion "
+              "into a measured one.")
+        return
+
+    for i, first in enumerate(names):
+        for second in names[i + 1:]:
+            kappa, overlap = cohens_kappa(by_judge[first], by_judge[second])
+            if kappa is None:
+                print(f"  {first} vs {second}: no overlapping pairs")
+            else:
+                print(f"  {first} vs {second}: kappa {kappa:.3f} over {overlap} shared pairs")
+
+
 # ------------------------------------------------------------------- scoring
 
 
@@ -128,15 +251,16 @@ def top_rows(scores, query_row, k):
 # ------------------------------------------------------------------- systems
 
 
-def build_systems(space, args):
+def build_systems(space, args, max_k=None):
     """
     One ranking function per system: row index in, ordered rows out.
 
     Each is a closure over matrices prepared once, because the cost that matters
-    is per query and there are thousands of them.
+    is per query and there are thousands of them. `max_k` is how deep each
+    system is asked to rank - judge.py passes its own pool depth.
     """
     systems = {}
-    max_k = max(K_VALUES)
+    max_k = max_k or max(K_VALUES)
 
     # 1. The engine as deployed. Called through its real entry point rather than
     #    reimplemented here, so this row measures what actually ships.
@@ -273,9 +397,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--truth", default="tmdb_recommended",
-        choices=["tmdb_recommended", "tmdb_similar"],
-        help="which TMDB list to treat as the answer key (default: recommended, "
-             "which covers 94%% of the catalogue; similar covers 61%%)",
+        choices=["tmdb_recommended", "tmdb_similar", "human"],
+        help="the answer key. tmdb_recommended (default) covers 94%% of the "
+             "catalogue and tmdb_similar 61%%; human reads the judgements "
+             "collected by evaluation/judge.py",
     )
     parser.add_argument(
         "--queries", type=int, default=0,
@@ -288,23 +413,42 @@ def main():
     args = parser.parse_args()
 
     space = FeatureSpace()
-    truth = ground_truth(space, args.truth)
-    systems = build_systems(space, args)
 
-    # A separate query set per cut-off: to be scored at k, a show must have at
-    # least k related titles available, or 1.0 would be unreachable and the
-    # number would say more about TMDB's coverage than about the system.
-    query_sets = {
-        k: sorted(row for row, related in truth.items() if len(related) >= k)
-        for k in K_VALUES
-    }
+    if args.truth == "human":
+        # People judged one pool of candidates, so scoring stops at the depth
+        # that pool was built to. Deeper results were never shown to anyone and
+        # would be counted as wrong purely for not having been looked at.
+        truth, judged, depth, records, pooled = human_truth(space)
+        k_values = (depth,)
+        query_sets = {depth: judged}
+        print()
+        print(f"Human judgements: {len(records)} verdicts over {len(judged)} "
+              f"query shows, pool depth {depth}")
+        report_agreement(records)
+        print()
+    else:
+        truth = ground_truth(space, args.truth)
+        k_values = K_VALUES
+        # A separate query set per cut-off: to be scored at k, a show must have
+        # at least k related titles available, or 1.0 would be unreachable and
+        # the number would say more about TMDB's coverage than about the system.
+        query_sets = {
+            k: sorted(row for row, related in truth.items() if len(related) >= k)
+            for k in k_values
+        }
+
     if args.queries:
         rng = np.random.default_rng(SEED)
         for k, rows in query_sets.items():
             if len(rows) > args.queries:
                 query_sets[k] = sorted(rng.choice(rows, size=args.queries, replace=False).tolist())
 
-    for k in K_VALUES:
+    systems = build_systems(space, args, max_k=max(k_values))
+    if args.truth == "human":
+        # Only systems that contributed to the pool can be scored on it.
+        systems = {name: rank for name, rank in systems.items() if name in pooled}
+
+    for k in k_values:
         print(f"precision@{k}: {len(query_sets[k])} query shows")
     print()
 
@@ -314,7 +458,7 @@ def main():
     for name, rank in systems.items():
         started = time.perf_counter()
         per_query[name] = {}
-        for k in K_VALUES:
+        for k in k_values:
             hits = np.empty(len(query_sets[k]), dtype=np.float64)
             for n, row in enumerate(query_sets[k]):
                 ranked = list(rank(row))[:k]
@@ -326,7 +470,7 @@ def main():
     results = {}
     for name in systems:
         entry = {"seconds": timings[name], "precision": {}, "ci": {}, "gap": {}}
-        for k in K_VALUES:
+        for k in k_values:
             values = per_query[name][k]
             entry["precision"][k] = float(values.mean())
             entry["ci"][k] = bootstrap_ci(values, rng)
@@ -337,7 +481,7 @@ def main():
         results[name] = entry
 
         line = f"  {name:14} "
-        for k in K_VALUES:
+        for k in k_values:
             low, high = entry["ci"][k]
             line += f"P@{k} {entry['precision'][k]:.3f} [{low:.3f}, {high:.3f}]  "
         print(line + f"({entry['seconds']:.1f}s)")
@@ -348,7 +492,7 @@ def main():
         if not entry["gap"]:
             continue
         parts = []
-        for k in K_VALUES:
+        for k in k_values:
             low, high = entry["gap"][k]
             # Three outcomes, not two: the reference can also LOSE, and an
             # interval sitting entirely below zero says so.
@@ -362,10 +506,10 @@ def main():
                          f"[{low:.3f}, {high:.3f}] {verdict}")
         print(f"  {name:14} " + "   ".join(parts))
 
-    write_report(args, query_sets, results)
+    write_report(args, k_values, query_sets, results)
 
 
-def write_report(args, query_sets, results):
+def write_report(args, k_values, query_sets, results):
     """Leave the table on disk so the dissertation can quote it verbatim."""
     lines = [
         "# Retrieval accuracy",
@@ -376,12 +520,12 @@ def write_report(args, query_sets, results):
         "",
         f"Intervals are 95% bootstrap ({BOOTSTRAP_SAMPLES} resamples of the query set).",
         "",
-        "| System | " + " | ".join(f"precision@{k}" for k in K_VALUES) + " |",
-        "|---|" + "---|" * len(K_VALUES),
+        "| System | " + " | ".join(f"precision@{k}" for k in k_values) + " |",
+        "|---|" + "---|" * len(k_values),
     ]
     for name, entry in results.items():
         cells = []
-        for k in K_VALUES:
+        for k in k_values:
             low, high = entry["ci"][k]
             cells.append(f"{entry['precision'][k]:.3f} [{low:.3f}, {high:.3f}]")
         lines.append(f"| `{name}` | " + " | ".join(cells) + " |")
@@ -395,14 +539,14 @@ def write_report(args, query_sets, results):
         "easier. An interval entirely above zero is a difference that survives",
         "resampling; one that straddles zero is not separated by this evidence.",
         "",
-        "| System | " + " | ".join(f"@{k}" for k in K_VALUES) + " |",
-        "|---|" + "---|" * len(K_VALUES),
+        "| System | " + " | ".join(f"@{k}" for k in k_values) + " |",
+        "|---|" + "---|" * len(k_values),
     ]
     for name, entry in results.items():
         if not entry["gap"]:
             continue
         cells = []
-        for k in K_VALUES:
+        for k in k_values:
             low, high = entry["gap"][k]
             gap = results[REFERENCE]["precision"][k] - entry["precision"][k]
             cells.append(f"{gap:+.3f} [{low:.3f}, {high:.3f}]")
@@ -413,9 +557,11 @@ def write_report(args, query_sets, results):
         "Query shows per cut-off (a show is only asked at k if TMDB names at",
         "least k related titles that this catalogue contains):",
         "",
-    ] + [f"- precision@{k}: {len(query_sets[k])} shows" for k in K_VALUES] + [""]
+    ] + [f"- precision@{k}: {len(query_sets[k])} shows" for k in k_values] + [""]
 
-    path = HERE / "retrieval_report.md"
+    # One report per answer key, so a human-judged run does not quietly
+    # overwrite the TMDB one.
+    path = HERE / f"retrieval_report_{args.truth}.md"
     path.write_text("\n".join(lines), encoding="utf-8")
     print(f"\nWritten to {path.relative_to(ROOT)}")
 

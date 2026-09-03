@@ -180,6 +180,10 @@ have neither a TMDB genre nor a surviving keyword**, and 19.3% have no keyword.
 
 ## 7. Other open items
 
+- **331 relevance judgements are waiting to be made.** `judge.py` is built and
+  the pool is fixed; nobody has judged anything yet. About an hour, resumable,
+  and it is the evidence S9.2 needs. A second judge (kappa) matters more than a
+  bigger pool.
 - **Is `MATURITY_PENALTY = 0.5` too strong?** It measurably costs proxy
   precision (above). The human-judged set is the right place to settle it.
 - **Preference mode has no explanations.** Now the only open half of S6.6:

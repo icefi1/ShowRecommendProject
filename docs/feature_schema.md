@@ -741,3 +741,60 @@ shows, and every other number in the table would be suspect. It does not.
    Scoring well means agreeing with the kind of recommender this project argues
    is insufficient — evidence the space is not returning noise, and nothing more.
    The claim about steering and explanation is tested with people (S9.6).
+
+---
+
+# v0.12 — the instrument for human judgement
+
+S9.2 asks for a human-judged set, and S9.1's TMDB numbers cannot substitute for
+it: agreeing with TMDB means imitating the kind of recommender this project
+argues is insufficient. `evaluation/judge.py` collects the key that does carry
+the claim. **No judgements have been collected yet** — what follows is the
+design and its reasoning, not a result.
+
+## Pooling, not exhaustive judging
+
+3,542 shows means 12.5 million possible pairs. The standard answer is **pooling**
+(Cranfield; used by TREC since 1992): for each query show, take the top *k* from
+every system under comparison, merge them, and judge that merged set once. Each
+judgement is then reused by every system, and a show no system returned cannot
+change the comparison — it scores as "not returned" for all of them either way.
+
+The pool is written to `judging_pool.json` and **shared between judges**, which
+is what makes agreement measurable, and **shuffled**, so a judge cannot tell
+which system produced a candidate or which ranked it first.
+
+## Three decisions worth defending
+
+**The controls are excluded from the pool.** Pooling all seven systems produced
+799 pairs — over three hours of judging — because `popular` and `random` each
+contribute five candidates per query that no other system returns. They are
+already settled at 0.003 on the TMDB key. Pooling only the five systems that are
+actually close gives **331 pairs over 20 query shows, about an hour**, and
+spends the scarce resource — human attention — on the comparison that is in
+doubt.
+
+**Query shows are sampled from the 400 most popular titles.** A judgement
+between two shows the judge has never heard of is noise. Popularity is the only
+proxy for familiarity available without asking first. `?` records "I don't know
+one of these" rather than forcing a guess.
+
+**The question is "would you recommend this to someone who liked X?"** Not "is
+it similar", which invites judging by genre label, and not "did you enjoy it",
+which is the evaluative question §6.3 keeps separate from the descriptive one.
+
+## Scoring
+
+`retrieval_accuracy.py --truth human` reads the judgements and scores exactly
+the systems that were pooled, at exactly the depth that was judged — anything
+deeper was never shown to anyone and would be counted as wrong for not having
+been looked at. A candidate is relevant when the majority of judges say yes;
+`maybe` counts as not relevant, which is the conservative reading.
+
+With two or more judges it reports **Cohen's kappa** on the overlap: agreement
+corrected for the agreement you would get by chance, since two judges who both
+say no to most things agree often by accident. Landis and Koch (1977) read
+0.41–0.60 as moderate, 0.61–0.80 as substantial.
+
+A second judge is what turns this from one person's opinion into a measurement,
+and is the thing most worth arranging before the write-up.

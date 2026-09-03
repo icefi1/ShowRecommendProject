@@ -18,7 +18,7 @@ training/report.md
 
 # Evaluation outputs - regenerate with the scripts in evaluation/
 evaluation/embeddings.npz
-evaluation/retrieval_report.md
+evaluation/retrieval_report_*.md
 
 app/crowd.db
 app/crowd.db-wal
