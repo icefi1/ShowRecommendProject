@@ -149,7 +149,7 @@ def human_truth(space):
     for (_, query_id, candidate_id), verdict in latest.items():
         votes.setdefault((query_id, candidate_id), []).append(verdict)
 
-    truth, judged_rows = {}, []
+    truth, unassessed, judged_rows = {}, {}, []
     for entry in pool["entries"]:
         query_id = entry["query_id"]
         if query_id not in space.index_by_id:
@@ -162,15 +162,27 @@ def human_truth(space):
 
         row = space.index_by_id[query_id]
         judged_rows.append(row)
-        relevant = set()
+        relevant, cannot_say = set(), set()
         for candidate_id in seen:
-            verdicts = votes[(query_id, candidate_id)]
-            yes = sum(1 for v in verdicts if v == "yes")
-            if yes * 2 > len(verdicts) and candidate_id in space.index_by_id:
-                relevant.add(space.index_by_id[candidate_id])
-        truth[row] = relevant
+            if candidate_id not in space.index_by_id:
+                continue
+            candidate_row = space.index_by_id[candidate_id]
 
-    return truth, sorted(judged_rows), pool["depth"], records, pool.get("systems", [])
+            # "Don't know it" is not a vote against - it is the absence of a
+            # vote. Ignoring those verdicts here is what lets a judge who knows
+            # the show settle a pair another judge could not assess, instead of
+            # the second judge's ignorance cancelling the first one's knowledge.
+            informed = [v for v in votes[(query_id, candidate_id)] if v != "unfamiliar"]
+            if not informed:
+                cannot_say.add(candidate_row)
+            elif sum(1 for v in informed if v == "yes") * 2 > len(informed):
+                relevant.add(candidate_row)
+
+        truth[row] = relevant
+        unassessed[row] = cannot_say
+
+    return (truth, unassessed, sorted(judged_rows), pool["depth"], records,
+            pool.get("systems", []))
 
 
 def cohens_kappa(pairs_a, pairs_b):
@@ -202,6 +214,47 @@ def cohens_kappa(pairs_a, pairs_b):
     if expected >= 1.0:
         return 1.0, len(shared)
     return (observed - expected) / (1 - expected), len(shared)
+
+
+def condensed_precision(systems, rows, truth, unassessed, k):
+    """
+    Precision counting only the results the judge could actually assess.
+
+    The plain measure treats "don't know it" as a miss, which punishes a system
+    for surfacing an obscure show exactly as hard as for surfacing a bad one.
+    Those are different failures and only one of them is the system's fault.
+
+    The standard treatment of incomplete judgements is to drop the unassessed
+    items from the ranking and score what is left - the "condensed list" of
+    Sakai (2007), the same reasoning behind bpref (Buckley and Voorhees, 2004).
+    So a system that returned five results of which two were assessable is
+    scored on those two.
+
+    A query is only counted when EVERY system has at least one assessable
+    result there, so all systems are still compared on identical queries - the
+    paired intervals depend on that.
+
+    Returns the per-query scores, which queries survived, and how many results
+    per query were assessable on average (the coverage this key really has).
+    """
+    counts = {}
+    for name, rank in systems.items():
+        counts[name] = {}
+        for row in rows:
+            ranked = list(rank(row))[:k]
+            assessable = [r for r in ranked if r not in unassessed[row]]
+            hits = sum(1 for r in assessable if r in truth[row])
+            counts[name][row] = (hits, len(assessable))
+
+    usable = [row for row in rows if all(counts[name][row][1] > 0 for name in systems)]
+
+    scores, coverage = {}, {}
+    for name in systems:
+        scores[name] = np.array(
+            [counts[name][row][0] / counts[name][row][1] for row in usable], dtype=np.float64)
+        coverage[name] = (
+            float(np.mean([counts[name][row][1] for row in usable])) if usable else 0.0)
+    return scores, usable, coverage
 
 
 def report_agreement(records):
@@ -431,7 +484,7 @@ def main():
         # People judged one pool of candidates, so scoring stops at the depth
         # that pool was built to. Deeper results were never shown to anyone and
         # would be counted as wrong purely for not having been looked at.
-        truth, judged, depth, records, pooled = human_truth(space)
+        truth, unassessed, judged, depth, records, pooled = human_truth(space)
         k_values = (depth,)
         query_sets = {depth: judged}
         print()
@@ -480,6 +533,10 @@ def main():
         timings[name] = time.perf_counter() - started
 
     rng = np.random.default_rng(SEED)
+    condensed, condensed_queries, coverage = {}, [], {}
+    if args.truth == "human":
+        condensed, condensed_queries, coverage = condensed_precision(
+            systems, query_sets[k_values[0]], truth, unassessed, k_values[0])
     results = {}
     for name in systems:
         entry = {"seconds": timings[name], "precision": {}, "ci": {}, "gap": {}}
@@ -518,6 +575,26 @@ def main():
             parts.append(f"@{k} {results[REFERENCE]['precision'][k] - entry['precision'][k]:+.3f} "
                          f"[{low:.3f}, {high:.3f}] {verdict}")
         print(f"  {name:14} " + "   ".join(parts))
+
+    if condensed and condensed_queries:
+        k = k_values[0]
+        print()
+        print(f"  counting only results the judge could assess "
+              f"({len(condensed_queries)} of {len(query_sets[k])} queries usable):")
+        for name in systems:
+            values = condensed[name]
+            low, high = bootstrap_ci(values, rng)
+            gap = ""
+            if name != REFERENCE:
+                glow, ghigh = bootstrap_ci(condensed[REFERENCE] - values, rng)
+                difference = float(condensed[REFERENCE].mean() - values.mean())
+                gap = f"   gap {difference:+.3f} [{glow:.3f}, {ghigh:.3f}]"
+            print(f"  {name:14} P@{k} {values.mean():.3f} [{low:.3f}, {high:.3f}]"
+                  f"   {coverage[name]:.1f} of {k} assessable{gap}")
+            results[name]["condensed"] = {
+                "precision": float(values.mean()), "ci": (low, high),
+                "coverage": coverage[name],
+            }
 
     write_report(args, k_values, query_sets, results)
 
