@@ -146,7 +146,8 @@ def describe(show, width=88):
     genres = ", ".join(show.get("genres") or []) or "no genre listed"
     overview = (show.get("overview") or "").strip()
     if len(overview) > 300:
-        overview = overview[:297].rsplit(" ", 1)[0] + "..."
+        # rstrip first, or an overview ending in a full stop shows four dots.
+        overview = overview[:297].rsplit(" ", 1)[0].rstrip(".,;: ") + "..."
 
     lines = [
         f"  {show['name']} ({show.get('year', '?')})",

@@ -133,10 +133,21 @@ def human_truth(space):
     records = [json.loads(line) for line in
                JUDGEMENTS_FILE.read_text(encoding="utf-8").splitlines() if line.strip()]
 
-    votes = {}
+    # One vote per judge per pair, and the LAST one wins. The web session lets a
+    # judge undo or re-answer, and the file is append-only during a session, so
+    # without this a corrected answer would be counted alongside the mistake it
+    # replaced.
+    latest = {}
     for record in records:
-        pair = (record["query_id"], record["candidate_id"])
-        votes.setdefault(pair, []).append(record["verdict"])
+        # Judge names are matched case-insensitively. "Uche" typed into the web
+        # session and "uche" typed at the terminal is one person, and counting
+        # them as two would let a single judge outvote themselves.
+        latest[(record["judge"].strip().casefold(),
+                record["query_id"], record["candidate_id"])] = record["verdict"]
+
+    votes = {}
+    for (_, query_id, candidate_id), verdict in latest.items():
+        votes.setdefault((query_id, candidate_id), []).append(verdict)
 
     truth, judged_rows = {}, []
     for entry in pool["entries"]:
@@ -197,7 +208,9 @@ def report_agreement(records):
     """Pairwise agreement between judges, on the yes/not-yes call that scoring uses."""
     by_judge = {}
     for record in records:
-        by_judge.setdefault(record["judge"], {})[
+        # Same case-insensitive matching as the scoring above, so agreement is
+        # reported between people rather than between spellings.
+        by_judge.setdefault(record["judge"].strip().casefold(), {})[
             (record["query_id"], record["candidate_id"])] = (
             "yes" if record["verdict"] == "yes" else "not-yes")
 
