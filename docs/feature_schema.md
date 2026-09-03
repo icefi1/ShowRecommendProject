@@ -798,3 +798,66 @@ say no to most things agree often by accident. Landis and Koch (1977) read
 
 A second judge is what turns this from one person's opinion into a measurement,
 and is the thing most worth arranging before the write-up.
+
+---
+
+# v0.13 — the schema is carrying about eleven dimensions, not thirty-seven
+
+S9.4, run by `evaluation/feature_structure.py`. PCA on the standardised score
+matrix — correlation rather than covariance, because `documentary` sits near zero
+almost everywhere while `drama` is high across the catalogue, and without
+standardising the components would describe which axes have big numbers rather
+than which axes move together.
+
+| Variance kept | Components, of 37 |
+|---|---|
+| 80% | 4 |
+| 90% | 7 |
+| 95% | 10 |
+
+PC1 alone holds 43.2%, and six components clear an eigenvalue of 1.
+
+## Whose collapse is it?
+
+Every predicted axis is a linear function of the same 384-dimensional embedding,
+fitted by ridge on 78 examples. Shrinkage pulls those directions towards each
+other, so a model can manufacture correlation the schema does not have. The same
+PCA on the labels themselves separates the two:
+
+| Variance kept | Labels (78 shows) | Predictions (3,542) |
+|---|---|---|
+| 80% | 7 | 4 |
+| 90% | **11** | 7 |
+| 95% | 15 | 10 |
+
+**Both are real.** The labels need 11 components for 90% of variance, so the
+schema genuinely carries around eleven independent dimensions of human judgement
+rather than thirty-seven. The predictions need only 7, so the model compresses it
+further — exactly what ridge on 78 labels should be expected to do.
+
+## Which axes
+
+| Pair | r |
+|---|---|
+| `thriller` / `tense` | +0.97 |
+| `horror` / `jumpscares` | +0.96 |
+| `bleak` / `unsettling` | +0.94 |
+| `creepy` / `jumpscares` | +0.94 |
+| `warm` / `cosy` | +0.93 |
+
+Independent, by strongest correlation with anything else: `historical` 0.54,
+`sci_fi` 0.62, `romance` 0.66, `documentary` 0.70, `reality` 0.70, `ensemble`
+0.72. The axes TMDB's taxonomy cannot express are the ones doing the most
+distinct work, which is the taxonomy-gap argument arriving from a new direction.
+
+## Not a pruning instruction
+
+`horror` correlating 0.96 with `jumpscares` is partly a real property of this
+catalogue — most Netflix GB horror does use shocks — and partly the model being
+unable to separate them at 78 labels. Merging them would destroy the exact
+distinction the motivating query depends on. The defensible reading is that the
+mood cluster has six to eight axes of slack, and that the analysis should be
+re-run when the two matrices converge.
+
+78 shows against 37 variables is thin for PCA; the usual rule of thumb wants
+185–370. Treat the label column as indicative.

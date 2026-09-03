@@ -243,7 +243,59 @@ a measurement rather than taste (5.6).
 | Query latency | 1.74 ms median, 2.11 ms p95 |
 | Labelled shows | 78 |
 
-### 4.1 Things worth defending in the viva
+### 4.1 Getting the scores: annotation, then a model
+
+Two stages, and the split matters.
+
+**Stage one, labelling.** An LLM scores a subset of shows against the fixed
+schema from their text. It is being used as an annotator — the same job you'd
+pay people to do — not as the recommender. Batches are sampled deliberately
+rather than at random, which I had to learn the hard way (5.7).
+
+**Stage two, the model.** A multi-label ridge regression head on top of frozen
+sentence-transformer embeddings (`all-MiniLM-L6-v2`, 384 dimensions), trained on
+those labels to predict all 37 axes from text.
+
+The trained model is the contribution, not the LLM. It gives three things API
+calls can't: it costs nothing to run over the full catalogue, it scores a show
+released after any model's cutoff, and it's frozen — LLM outputs drift between
+provider updates, weights on disk don't. Reproducibility matters for a result
+someone else is supposed to be able to check.
+
+**Why not fine-tune DistilBERT end to end?** With a few hundred labelled shows,
+fine-tuning ~66M parameters overfits almost immediately: it memorises the
+training titles instead of learning what the words mean. A frozen encoder plus a
+linear head fits about 384 × 37 parameters, which is the right capacity for this
+much data, and it trains in seconds on a CPU with no GPU available. If the
+labelled set ever reaches a few thousand shows, fine-tuning becomes worth
+revisiting — that's a scale question, not a correctness one.
+
+**Results at 78 labels**, five-fold cross-validated, R² above 0 meaning the model
+beats predicting that axis's mean:
+
+| | |
+|---|---|
+| Axes beating the mean baseline | **37 of 37** |
+| Mean absolute error | 0.174 |
+| Best axes | `horror` 0.570, `jumpscares` 0.556, `fantasy` 0.538, `crime` 0.519, `creepy` 0.513 |
+| Worst | `sentimental` 0.053, `absurd` 0.084, `earnest` 0.091, `slow_burn` 0.107 |
+
+`jumpscares` is the one I care about: it's the axis the motivating query is built
+on, it had near-zero variance two batches earlier, and it more than doubled
+(0.245 → 0.556) once the sampler started deliberately pairing horror shows that
+rely on shocks against horror shows whose own descriptions say they don't. You
+cannot learn that axis from horror shows alone, only from horror shows that
+disagree on it.
+
+The weak axes are all diffuse tonal qualities with no keyword vocabulary to
+sample against. It's an open question whether keyword-based sampling can reach
+them at all.
+
+Held-out sanity check on shows never seen in training: *Better Call Saul* scores
+0.00 on `jumpscares`, 0.00 on `horror`, and 0.74 on `dialogue_driven`. Nothing in
+the training set resembles it.
+
+### 4.2 Things worth defending in the viva
 
 **Precomputed row norms.** Computing vector norms per query dominated query
 time. Precomputing them at startup took a query from ~54 ms to under 1 ms, which
@@ -433,12 +485,76 @@ cast credit, so it tracks ensemble *size*, not turnover. I relabelled the axis t
 what it actually measures and kept it. Measuring real churn needs guest star
 identities across episodes, which my fetcher discards.
 
-[TODO: 5.8 label validity — Cohen's kappa between my hand scores and model
-output on 100 shows. Not done.]
+### 5.8 Is the schema actually 37 things?
 
-[TODO: 5.9 PCA over the tag matrix. If 37 axes collapse to 12 components several
-are redundant and the schema should be pruned. Not done, and it's the clearest
-demonstration of the dimensionality-reduction learning outcome.]
+I wrote the 37 axes by hand before any scoring happened. That's the right order —
+it stops a model inventing near-duplicates — but nothing in the process
+guaranteed the axes are independent. If `creepy`, `unsettling` and `tense` always
+move together they're one axis wearing three hats: three dimensions, three vote
+targets and three lines of explanation, for one dimension of information.
+
+PCA on the standardised score matrix over all 3,542 shows (correlation matrix,
+not covariance, because the axes have very different spreads — `documentary` sits
+near zero almost everywhere while `drama` is high across the catalogue):
+
+| Variance kept | Components needed, of 37 |
+|---|---|
+| 80% | 4 |
+| 90% | 7 |
+| 95% | 10 |
+
+Six components have an eigenvalue above 1 (Kaiser's rule). The first alone holds
+43.2%.
+
+That looks damning, so before concluding the schema is bloated I checked whether
+the collapse belongs to the schema or to the model. Every predicted axis is a
+linear function of the same 384-dimensional embedding, fitted by ridge on 78
+examples — shrinkage pulls those directions towards each other, so a model can
+manufacture correlation the schema doesn't have. Running the identical analysis
+on the labels themselves separates the two:
+
+| Variance kept | Labels (78 shows) | Predictions (3,542) |
+|---|---|---|
+| 80% | 7 | 4 |
+| 90% | 11 | 7 |
+| 95% | 15 | 10 |
+
+**Both effects are real.** The labels need 11 components for 90%, so 37 axes are
+carrying roughly 11 independent dimensions of human judgement — the schema *is*
+redundant. But the predictions need only 7, so the model is compressing it
+further, which is what ridge on 78 examples would be expected to do.
+
+The most correlated pairs name exactly which axes to look at:
+
+| | |
+|---|---|
+| `thriller` / `tense` | +0.97 |
+| `horror` / `jumpscares` | +0.96 |
+| `bleak` / `unsettling` | +0.94 |
+| `creepy` / `jumpscares` | +0.94 |
+| `thriller` / `plot_twists` | +0.94 |
+| `warm` / `cosy` | +0.93 |
+
+And the axes doing genuinely independent work, by their strongest correlation
+with anything else: `historical` (0.54), `sci_fi` (0.62), `romance` (0.66),
+`documentary` (0.70), `reality` (0.70), `ensemble` (0.72).
+
+**What I'd actually do about it.** Not a straight prune. `horror` correlating
+0.96 with `jumpscares` is partly a real property of the catalogue — most horror
+on Netflix GB does use shocks — and partly the model being unable to tell them
+apart at 78 labels. Merging them would destroy the exact distinction the
+motivating query depends on ("horror, lots of jumpscares, simple plot"). The
+honest conclusion is that the schema has room to lose maybe six to eight axes
+among the mood cluster, and that the right test is to re-run this once the
+labelled set is large enough for the two matrices to converge.
+
+**Caveat.** 78 shows against 37 variables is a thin basis for PCA — the usual
+rule of thumb wants five to ten observations per variable, so 185 to 370. The
+label-side numbers should be treated as indicative.
+
+[TODO: 5.9 label validity — Cohen's kappa between my own hand scores and model
+output on 100 shows. Not done, and distinct from 5.8: this measures whether the
+scores are *right*, not whether the axes are *distinct*.]
 
 [TODO: 5.10 usability study, 5 participants, SUS plus time-to-completion.]
 
@@ -472,13 +588,73 @@ for months, and when I finally tested it it was costing accuracy.
   Blender viewport conventions for navigation. Designed, not built.
 - **Preference-mode explanations.** Dial-built queries return results with no
   explanation, because `explain()` needs two catalogue rows to diff.
+- **Prune the mood cluster.** 5.8 says the labels carry about 11 independent
+  dimensions across 37 axes, and names the candidates. The test is to re-run that
+  analysis once the labelled set is large enough for the label and prediction
+  matrices to agree — merging axes on the current evidence risks destroying the
+  `horror` / `jumpscares` distinction the whole project is built around.
 - **Drop provenance keywords from the vocabulary**, not just from explanations.
   Currently `based on novel or book` still influences ranking; removing it would
   change results, so it's an ablation I haven't run.
 
 ---
 
-## 8. Notes to self
+## 8. References
+
+Working list. **[TODO: check every one against the actual paper and reformat to
+the school's required style — these are from memory and the details need
+verifying before submission.]**
+
+**The closest prior work**
+- Vig, J., Sen, S. and Riedl, J. (2012) 'The Tag Genome: Encoding Community
+  Knowledge to Support Novel Interaction', *ACM Transactions on Interactive
+  Intelligent Systems*.
+- Herlocker, J. et al. (2004) 'Evaluating Collaborative Filtering Recommender
+  Systems', *ACM Transactions on Information Systems*.
+
+**Evaluation methodology** — this is where most of my citations are, because it's
+where I made the most decisions.
+- Cleverdon, C. (1967) 'The Cranfield tests on index language devices',
+  *Aslib Proceedings*. — pooling, and the whole test-collection idea.
+- Buckley, C. and Voorhees, E. (2004) 'Retrieval Evaluation with Incomplete
+  Information', *SIGIR*. — bpref; why unjudged results must not be counted as
+  irrelevant (5.4).
+- Sakai, T. (2007) 'Alternatives to Bpref', *SIGIR*. — condensed lists, which is
+  what I actually implemented.
+- Voorhees, E. (2000) 'Variations in relevance judgments and the measurement of
+  retrieval effectiveness', *Information Processing and Management*. — judges
+  disagree, and it matters less than you'd think for *comparing* systems. Backs
+  my argument for a second judge.
+- Cohen, J. (1960) 'A Coefficient of Agreement for Nominal Scales', *Educational
+  and Psychological Measurement*.
+- Landis, J. and Koch, G. (1977) 'The Measurement of Observer Agreement for
+  Categorical Data', *Biometrics*. — the 0.41–0.60 / 0.61–0.80 bands I quote.
+- Efron, B. (1979) 'Bootstrap Methods: Another Look at the Jackknife',
+  *Annals of Statistics*. — every confidence interval in section 5.
+
+**Models and representation**
+- Reimers, N. and Gurevych, I. (2019) 'Sentence-BERT: Sentence Embeddings using
+  Siamese BERT-Networks', *EMNLP*. — the encoder, and the baseline.
+- Spärck Jones, K. (1972) 'A statistical interpretation of term specificity and
+  its application in retrieval', *Journal of Documentation*. — IDF, which the
+  keyword block and the explanation ordering both rest on.
+- Burges, C. et al. (2005) 'Learning to Rank using Gradient Descent', *ICML*. —
+  RankNet, cited as the methodological ancestor of the learned block weights I
+  designed but haven't built.
+- Ribeiro, M., Singh, S. and Guestrin, C. (2016) '"Why Should I Trust You?":
+  Explaining the Predictions of Any Classifier', *KDD*. — LIME, cited for
+  contrast: post-hoc explanation approximates a model it can disagree with,
+  whereas mine is computed from the same vectors used to rank.
+- McInnes, L., Healy, J. and Melville, J. (2018) 'UMAP: Uniform Manifold
+  Approximation and Projection', *arXiv*. — for the 3D explorer in further work.
+
+**Data**
+- The Movie Database (TMDB) API. This product uses the TMDB API but is not
+  endorsed or certified by TMDB.
+
+---
+
+## 9. Notes to self
 
 Not part of the report.
 
