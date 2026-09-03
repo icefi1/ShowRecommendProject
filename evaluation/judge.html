@@ -64,6 +64,30 @@
   .minor button:hover { color: var(--text); }
 
   .note { color: var(--muted); font-size: 13px; margin-top: 26px; }
+
+  /* Screening: which shows the judge has actually seen. */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+    gap: 12px; margin-top: 18px; }
+  .tile { cursor: pointer; border: 2px solid transparent; border-radius: 8px;
+    padding: 6px; background: var(--panel); user-select: none; }
+  .tile:hover { background: var(--panel-2); }
+  .tile.on { border-color: var(--good); background: var(--panel-2); }
+  .tile img, .tile .blank { width: 100%; aspect-ratio: 2 / 3; object-fit: cover;
+    border-radius: 5px; display: block; background: var(--panel-2); }
+  .tile .t { font-size: 12px; margin-top: 6px; line-height: 1.3; }
+  .tile .y { color: var(--muted); font-size: 11px; }
+  .sticky { position: sticky; bottom: 0; z-index: 4; display: flex; gap: 14px;
+    align-items: center; padding: 14px 0; margin-top: 22px;
+    background: linear-gradient(transparent, var(--bg) 22%); }
+  .sticky button {
+    padding: 12px 20px; font-size: 15px; cursor: pointer; border-radius: 8px;
+    background: var(--accent); color: #12131a; border: 0; font-weight: 600;
+    font-family: inherit;
+  }
+  .sticky button[disabled] { background: var(--panel-2); color: var(--muted); cursor: default; }
+  .headerlink { background: none; border: 0; color: var(--muted); cursor: pointer;
+    font-size: 13px; text-decoration: underline; font-family: inherit; }
+  .headerlink:hover { color: var(--text); }
   .done { text-align: center; padding: 60px 20px; }
   .done h2 { font-size: 22px; }
   code { background: var(--panel-2); padding: 2px 6px; border-radius: 4px; font-size: 13px; }
@@ -74,6 +98,7 @@
 <header>
   <h1>Relevance judging</h1>
   <input type="text" id="judge" placeholder="your name" autocomplete="off">
+  <button class="headerlink" id="editknown">shows I've seen</button>
   <span class="who" id="progress"></span>
 </header>
 <div class="bar"><div id="barfill"></div></div>
@@ -97,6 +122,98 @@ $("#judge").oninput = () => {
   localStorage.setItem("judge", judgeName());
   load();
 };
+
+// ---------------------------------------------------------------- screening
+//
+// Only the query show in a pair has to be one you have seen: "what would you
+// recommend to someone who liked X" cannot be answered without knowing X. The
+// candidate is judged from its poster and description, so it is not screened.
+
+let known = new Set();
+
+$("#editknown").onclick = () => screening();
+
+async function screening() {
+  const name = judgeName();
+  if (!name) return;
+  current = null;   // so a stray keypress cannot answer a pair that is off screen
+
+  const data = await (await fetch(`/api/screen?judge=${encodeURIComponent(name)}`)).json();
+  known = new Set(data.shows.filter((s) => s.known).map((s) => s.id));
+
+  $("#progress").textContent = "";
+  $("#barfill").style.width = "0";
+  $("#main").innerHTML = `
+    <div class="prompt">Which of these have you seen?</div>
+    <p class="note" style="margin-top:6px">Tick every show you know well enough to
+    say what someone who liked it would want next. Judging only asks about these;
+    the shows they get compared against do not need to be familiar. Aim for
+    ${data.needed} or more — the more you tick, the better the pool.</p>
+    <div class="grid" id="grid">${data.shows.map(tile).join("")}</div>
+    <div class="sticky">
+      <button id="buildpool">Build my judging set</button>
+      <span class="note" style="margin:0" id="count"></span>
+    </div>`;
+
+  $("#grid").onclick = (event) => {
+    const tile = event.target.closest("[data-show]");
+    if (!tile) return;
+    const id = Number(tile.dataset.show);
+    known.has(id) ? known.delete(id) : known.add(id);
+    tile.classList.toggle("on");
+    updateCount();
+  };
+  $("#buildpool").onclick = buildPool;
+  updateCount();
+}
+
+function tile(show) {
+  const image = show.poster
+    ? `<img src="${show.poster}" alt="" loading="lazy">`
+    : `<div class="blank"></div>`;
+  return `
+    <div class="tile ${show.known ? "on" : ""}" data-show="${show.id}">
+      ${image}
+      <div class="t">${show.name}</div>
+      <div class="y">${show.year || ""}</div>
+    </div>`;
+}
+
+function updateCount() {
+  $("#count").textContent = `${known.size} ticked`;
+  $("#buildpool").disabled = known.size < 5;
+}
+
+async function buildPool() {
+  const name = judgeName();
+  $("#buildpool").disabled = true;
+  $("#count").textContent = "building ...";
+
+  await fetch("/api/screen", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ judge: name, show_ids: [...known] }),
+  });
+
+  const response = await fetch(`/api/build-pool?judge=${encodeURIComponent(name)}`,
+                              { method: "POST" });
+  if (!response.ok) {
+    $("#count").textContent = (await response.json()).detail;
+    $("#buildpool").disabled = false;
+    return;
+  }
+  const built = await response.json();
+  revisit = false;
+  $("#main").innerHTML = `
+    <div class="done">
+      <h2>Judging set rebuilt.</h2>
+      <p class="note">${built.queries} shows you have seen, ${built.pairs} pairs to judge.
+      Anything you already answered still counts.</p>
+    </div>`;
+  setTimeout(load, 900);
+}
+
+// ------------------------------------------------------------------ judging
 
 function card(show, label) {
   const poster = show.poster
@@ -132,6 +249,10 @@ async function load() {
     return;
   }
   const data = await response.json();
+
+  // A judge who has not said what they have seen gets asked that first: the
+  // whole point is that the query show must be one they know.
+  if (!data.progress.screened) return screening();
 
   const { done, total, unknown } = data.progress;
   $("#progress").textContent = revisit

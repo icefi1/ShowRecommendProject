@@ -55,6 +55,12 @@ sys.path.insert(0, str(ROOT))
 from app.similarity import FeatureSpace  # noqa: E402
 from evaluation.retrieval_accuracy import build_systems  # noqa: E402
 
+# Which shows each judge says they have seen, keyed by lowercased name. The
+# query show in a pair has to be one the judge knows - "would you recommend this
+# to someone who liked X" is unanswerable otherwise - while the candidate only
+# has to be judgeable from its poster and description.
+FAMILIAR_FILE = HERE / "familiar.json"
+
 POOL_FILE = HERE / "judging_pool.json"
 JUDGEMENTS_FILE = HERE / "judgements.jsonl"
 
@@ -81,20 +87,49 @@ VERDICTS = {
 }
 
 
+def load_familiar():
+    """Every judge's list of shows they know, as {judge: [show_id, ...]}."""
+    if not FAMILIAR_FILE.exists():
+        return {}
+    return json.loads(FAMILIAR_FILE.read_text(encoding="utf-8"))
+
+
+def save_familiar(judge, show_ids):
+    """Replace one judge's list. Judges are keyed lowercased, as in scoring."""
+    everyone = load_familiar()
+    everyone[judge.strip().casefold()] = sorted(set(int(i) for i in show_ids))
+    FAMILIAR_FILE.write_text(json.dumps(everyone, indent=1), encoding="utf-8")
+    return everyone
+
+
 def load_pool():
     return json.loads(POOL_FILE.read_text(encoding="utf-8")) if POOL_FILE.exists() else None
 
 
-def build_pool(space, queries, depth):
+def build_pool(space, queries, depth, query_rows=None):
     """
     Choose the query shows, collect every system's top `depth` for each, and
     shuffle the merged candidates so the judge cannot see where they came from.
+
+    `query_rows` names the query shows explicitly - the screening step passes
+    the ones the judge says they have seen. Left out, the queries are sampled
+    from the most popular titles, which was the original guess at familiarity
+    and turned out to be a poor one: the first session came back 80% "don't
+    know it".
     """
     everything = build_systems(space, Namespace(skip_embeddings=False), max_k=depth)
     systems = {name: rank for name, rank in everything.items() if name in POOLED_SYSTEMS}
     rng = random.Random(SEED)
 
-    query_rows = rng.sample(range(min(POPULAR_POOL, len(space.catalogue))), queries)
+    if query_rows is None:
+        chosen = rng.sample(range(min(POPULAR_POOL, len(space.catalogue))), queries)
+        picked_by = "popularity"
+    else:
+        chosen = sorted(query_rows)
+        if len(chosen) > queries:
+            chosen = sorted(rng.sample(chosen, queries))
+        picked_by = "screened"
+    query_rows = chosen
 
     entries = []
     for row in query_rows:
@@ -120,7 +155,10 @@ def build_pool(space, queries, depth):
         # Scoring a system whose results nobody judged would count every one of
         # them as irrelevant purely for never having been looked at.
         "systems": list(systems),
-        "queries": queries,
+        "queries": len(query_rows),
+        # How the query shows were chosen, so a rebuilt pool is not silently
+        # compared against one built the old way.
+        "picked_by": picked_by,
         "built": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "entries": entries,
     }

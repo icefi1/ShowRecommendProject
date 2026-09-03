@@ -34,13 +34,26 @@ sys.path.insert(0, str(ROOT))
 from app.similarity import FeatureSpace  # noqa: E402
 from evaluation.judge import (  # noqa: E402
     JUDGEMENTS_FILE,
+    POOL_FILE,
     VERDICTS,
+    build_pool,
+    load_familiar,
     load_judgements,
     load_pool,
     record,
+    save_familiar,
 )
 
 PORT = 8020
+
+# How many of the most popular titles the screening grid offers. Wide enough to
+# find twenty a person has actually watched, short enough to skim.
+SCREEN_SIZE = 200
+
+# Query shows in a rebuilt pool. Twenty queries at five deep across five systems
+# came to 331 pairs, which was about an hour.
+POOL_QUERIES = 20
+POOL_DEPTH = 5
 
 app = FastAPI(title="Relevance judging")
 space = FeatureSpace()
@@ -75,6 +88,63 @@ def pairs_in_pool():
     return [(e["query_id"], c) for e in pool["entries"] for c in e["candidates"]]
 
 
+@app.get("/api/screen")
+def screening_list(judge: str):
+    """
+    The shows to tick as "I have seen this", most popular first.
+
+    Only the QUERY show in a pair needs to be known: the judge is asked what
+    they would recommend to someone who liked it, which is unanswerable without
+    knowing it. The candidate can be judged from its poster and description, so
+    it is not screened - that is what keeps the workload survivable.
+    """
+    known = set(load_familiar().get(judge.strip().casefold(), []))
+    # The catalogue arrives from TMDB in popularity order, so the first slice is
+    # the most-watched, which is where a person's viewing history will be.
+    shows = [show_card(show["id"]) for show in space.catalogue[:SCREEN_SIZE]]
+    for show in shows:
+        show["known"] = show["id"] in known
+    return {"shows": shows, "known": len(known), "needed": POOL_QUERIES}
+
+
+class Familiar(BaseModel):
+    judge: str = Field(min_length=1, max_length=40)
+    show_ids: list[int] = Field(default_factory=list)
+
+
+@app.post("/api/screen")
+def save_screening(familiar: Familiar):
+    """Save which shows this judge knows."""
+    save_familiar(familiar.judge, familiar.show_ids)
+    return {"ok": True, "known": len(set(familiar.show_ids))}
+
+
+@app.post("/api/build-pool")
+def rebuild(judge: str):
+    """
+    Rebuild the judging pool from the shows this judge says they have seen.
+
+    The previous pool is kept beside the new one rather than overwritten: it is
+    what the existing judgements were made against, and a discarded pool cannot
+    be reported honestly.
+    """
+    known_ids = load_familiar().get(judge.strip().casefold(), [])
+    rows = [space.index_by_id[i] for i in known_ids if i in space.index_by_id]
+    if len(rows) < 5:
+        raise HTTPException(
+            status_code=400,
+            detail="Tick at least five shows you have seen, or there is nothing to ask about.",
+        )
+
+    if POOL_FILE.exists():
+        kept = POOL_FILE.with_name("judging_pool_previous.json")
+        kept.write_text(POOL_FILE.read_text(encoding="utf-8"), encoding="utf-8")
+
+    pool = build_pool(space, POOL_QUERIES, POOL_DEPTH, query_rows=rows)
+    pairs = sum(len(e["candidates"]) for e in pool["entries"])
+    return {"ok": True, "queries": len(pool["entries"]), "pairs": pairs}
+
+
 @app.get("/api/next")
 def next_pair(judge: str, revisit: bool = False):
     """
@@ -100,6 +170,9 @@ def next_pair(judge: str, revisit: bool = False):
     progress = {
         "done": len(verdicts), "total": len(pairs),
         "fresh_left": len(fresh), "unknown": len(unknown),
+        # Whether this judge has said which shows they know. Without that, the
+        # pool is built on a guess about their viewing history.
+        "screened": bool(load_familiar().get(judge.casefold())),
     }
     if not queue:
         return {"finished": True, "progress": progress, "mode": "revisit" if revisit else "fresh"}
