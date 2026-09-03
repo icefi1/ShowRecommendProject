@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Relevance judging</title>
+<style>
+  :root {
+    --bg: #0f1015; --panel: #171922; --panel-2: #1e2130; --line: #2a2e3d;
+    --text: #e8eaf2; --muted: #9aa1b8; --accent: #6f8bff; --good: #58d39b; --bad: #ff7a7a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text); font-size: 15px;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif; line-height: 1.5;
+  }
+  header {
+    display: flex; align-items: center; gap: 16px; padding: 12px 20px;
+    border-bottom: 1px solid var(--line); background: var(--panel);
+    position: sticky; top: 0; z-index: 5;
+  }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  header .who { color: var(--muted); font-size: 13px; margin-left: auto; }
+  input[type=text] {
+    padding: 7px 10px; background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 6px; font-size: 14px; width: 180px;
+  }
+  .bar { height: 4px; background: var(--panel-2); }
+  .bar div { height: 100%; background: var(--accent); width: 0; transition: width .2s; }
+
+  main { max-width: 940px; margin: 0 auto; padding: 26px 20px 60px; }
+  .prompt { color: var(--muted); font-size: 13px; text-transform: uppercase;
+    letter-spacing: 0.07em; margin-bottom: 8px; }
+
+  .show { display: grid; grid-template-columns: 120px 1fr; gap: 18px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 16px; }
+  .show img { width: 120px; border-radius: 6px; background: var(--panel-2); display: block; }
+  .show .noposter { width: 120px; height: 180px; border-radius: 6px; background: var(--panel-2); }
+  .show h2 { margin: 0 0 4px; font-size: 20px; }
+  .show .facts { color: var(--muted); font-size: 13px; margin-bottom: 10px; }
+  .show p { margin: 0; color: #c6cbdc; font-size: 14px; }
+
+  .arrow { text-align: center; color: var(--muted); font-size: 13px; margin: 14px 0;
+    text-transform: uppercase; letter-spacing: 0.07em; }
+
+  .answers { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 26px; }
+  .answers button {
+    flex: 1; min-width: 130px; padding: 14px 10px; font-size: 15px; cursor: pointer;
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 8px; font-family: inherit;
+  }
+  .answers button:hover { border-color: var(--accent); }
+  .answers button b { display: block; font-size: 12px; color: var(--muted); font-weight: 500; }
+  .answers .yes:hover { border-color: var(--good); }
+  .answers .no:hover { border-color: var(--bad); }
+
+  .minor { display: flex; gap: 14px; margin-top: 16px; align-items: center;
+    color: var(--muted); font-size: 13px; }
+  .minor button {
+    background: none; border: 0; color: var(--muted); cursor: pointer;
+    font-size: 13px; text-decoration: underline; font-family: inherit; padding: 0;
+  }
+  .minor button:hover { color: var(--text); }
+
+  .note { color: var(--muted); font-size: 13px; margin-top: 26px; }
+
+  /* Screening: which shows the judge has actually seen. */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+    gap: 12px; margin-top: 18px; }
+  .tile { cursor: pointer; border: 2px solid transparent; border-radius: 8px;
+    padding: 6px; background: var(--panel); user-select: none; }
+  .tile:hover { background: var(--panel-2); }
+  .tile.on { border-color: var(--good); background: var(--panel-2); }
+  .tile img, .tile .blank { width: 100%; aspect-ratio: 2 / 3; object-fit: cover;
+    border-radius: 5px; display: block; background: var(--panel-2); }
+  .tile .t { font-size: 12px; margin-top: 6px; line-height: 1.3; }
+  .tile .y { color: var(--muted); font-size: 11px; }
+  .sticky { position: sticky; bottom: 0; z-index: 4; display: flex; gap: 14px;
+    align-items: center; padding: 14px 0; margin-top: 22px;
+    background: linear-gradient(transparent, var(--bg) 22%); }
+  .sticky button {
+    padding: 12px 20px; font-size: 15px; cursor: pointer; border-radius: 8px;
+    background: var(--accent); color: #12131a; border: 0; font-weight: 600;
+    font-family: inherit;
+  }
+  .sticky button[disabled] { background: var(--panel-2); color: var(--muted); cursor: default; }
+  .headerlink { background: none; border: 0; color: var(--muted); cursor: pointer;
+    font-size: 13px; text-decoration: underline; font-family: inherit; }
+  .headerlink:hover { color: var(--text); }
+  .done { text-align: center; padding: 60px 20px; }
+  .done h2 { font-size: 22px; }
+  code { background: var(--panel-2); padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Relevance judging</h1>
+  <input type="text" id="judge" placeholder="your name" autocomplete="off">
+  <button class="headerlink" id="editknown">shows I've seen</button>
+  <span class="who" id="progress"></span>
+</header>
+<div class="bar"><div id="barfill"></div></div>
+
+<main id="main">
+  <p class="note">Put your name in above to start. It is only used to tell judges apart.</p>
+</main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+let current = null;      // the pair on screen
+let busy = false;        // stops a double keypress answering twice
+let revisit = false;     // second pass over the "don't know it" answers
+
+function judgeName() { return $("#judge").value.trim(); }
+
+// Remembering the name means closing the tab and coming back does not cost
+// anything. It never leaves this machine.
+$("#judge").value = localStorage.getItem("judge") || "";
+$("#judge").oninput = () => {
+  localStorage.setItem("judge", judgeName());
+  load();
+};
+
+// ---------------------------------------------------------------- screening
+//
+// Only the query show in a pair has to be one you have seen: "what would you
+// recommend to someone who liked X" cannot be answered without knowing X. The
+// candidate is judged from its poster and description, so it is not screened.
+
+let known = new Set();
+
+$("#editknown").onclick = () => screening();
+
+async function screening() {
+  const name = judgeName();
+  if (!name) return;
+  current = null;   // so a stray keypress cannot answer a pair that is off screen
+
+  const data = await (await fetch(`/api/screen?judge=${encodeURIComponent(name)}`)).json();
+  known = new Set(data.shows.filter((s) => s.known).map((s) => s.id));
+
+  $("#progress").textContent = "";
+  $("#barfill").style.width = "0";
+  $("#main").innerHTML = `
+    <div class="prompt">Which of these have you seen?</div>
+    <p class="note" style="margin-top:6px">Tick every show you know well enough to
+    say what someone who liked it would want next. Judging only asks about these;
+    the shows they get compared against do not need to be familiar. Aim for
+    ${data.needed} or more — the more you tick, the better the pool.</p>
+    <div class="grid" id="grid">${data.shows.map(tile).join("")}</div>
+    <div class="sticky">
+      <button id="buildpool">Build my judging set</button>
+      <span class="note" style="margin:0" id="count"></span>
+    </div>`;
+
+  $("#grid").onclick = (event) => {
+    const tile = event.target.closest("[data-show]");
+    if (!tile) return;
+    const id = Number(tile.dataset.show);
+    known.has(id) ? known.delete(id) : known.add(id);
+    tile.classList.toggle("on");
+    updateCount();
+  };
+  $("#buildpool").onclick = buildPool;
+  updateCount();
+}
+
+function tile(show) {
+  const image = show.poster
+    ? `<img src="${show.poster}" alt="" loading="lazy">`
+    : `<div class="blank"></div>`;
+  return `
+    <div class="tile ${show.known ? "on" : ""}" data-show="${show.id}">
+      ${image}
+      <div class="t">${show.name}</div>
+      <div class="y">${show.year || ""}</div>
+    </div>`;
+}
+
+function updateCount() {
+  $("#count").textContent = `${known.size} ticked`;
+  $("#buildpool").disabled = known.size < 5;
+}
+
+async function buildPool() {
+  const name = judgeName();
+  $("#buildpool").disabled = true;
+  $("#count").textContent = "building ...";
+
+  await fetch("/api/screen", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ judge: name, show_ids: [...known] }),
+  });
+
+  const response = await fetch(`/api/build-pool?judge=${encodeURIComponent(name)}`,
+                              { method: "POST" });
+  if (!response.ok) {
+    $("#count").textContent = (await response.json()).detail;
+    $("#buildpool").disabled = false;
+    return;
+  }
+  const built = await response.json();
+  revisit = false;
+  $("#main").innerHTML = `
+    <div class="done">
+      <h2>Judging set rebuilt.</h2>
+      <p class="note">${built.queries} shows you have seen, ${built.pairs} pairs to judge.
+      Anything you already answered still counts.</p>
+    </div>`;
+  setTimeout(load, 900);
+}
+
+// ------------------------------------------------------------------ judging
+
+function card(show, label) {
+  const poster = show.poster
+    ? `<img src="${show.poster}" alt="">`
+    : `<div class="noposter"></div>`;
+  const facts = [
+    show.year,
+    (show.genres || []).join(", "),
+    show.episodes ? `${show.episodes} episodes` : null,
+    show.certificate || null,
+    show.rating ? `★ ${show.rating}` : null,
+  ].filter(Boolean).join(" · ");
+  return `
+    <div class="prompt">${label}</div>
+    <div class="show">
+      ${poster}
+      <div>
+        <h2>${show.name}</h2>
+        <div class="facts">${facts}</div>
+        <p>${show.overview || "No description."}</p>
+      </div>
+    </div>`;
+}
+
+async function load() {
+  const name = judgeName();
+  if (!name) return;
+
+  const response = await fetch(
+    `/api/next?judge=${encodeURIComponent(name)}&revisit=${revisit}`);
+  if (!response.ok) {
+    $("#main").innerHTML = `<p class="note">${(await response.json()).detail}</p>`;
+    return;
+  }
+  const data = await response.json();
+
+  // A judge who has not said what they have seen gets asked that first: the
+  // whole point is that the query show must be one they know.
+  if (!data.progress.screened) return screening();
+
+  const { done, total, unknown } = data.progress;
+  $("#progress").textContent = revisit
+    ? `second pass · ${unknown} still unknown`
+    : `${done} of ${total} judged`;
+  $("#barfill").style.width = `${(done / total) * 100}%`;
+
+  if (data.finished) {
+    current = null;
+    // Everything has been seen once, but pairs answered "don't know it" carry
+    // no information either way. Offer those again rather than calling it done.
+    if (!revisit && unknown > 0) {
+      $("#main").innerHTML = `
+        <div class="done">
+          <h2>Been through all ${total}.</h2>
+          <p class="note">${unknown} of them you marked <em>don't know it</em>, and
+          those tell the evaluation nothing. Now that there are posters, a second
+          look is worth it — you will recognise some.</p>
+          <div class="answers">
+            <button id="startrevisit">Show me those ${unknown} again</button>
+          </div>
+        </div>`;
+      $("#startrevisit").onclick = () => { revisit = true; load(); };
+      return;
+    }
+    $("#main").innerHTML = `
+      <div class="done">
+        <h2>${revisit ? "Second pass done." : `All ${total} judged.`} Thank you.</h2>
+        <p class="note">Score them with<br>
+        <code>venv\\Scripts\\python evaluation/retrieval_accuracy.py --truth human</code></p>
+      </div>`;
+    return;
+  }
+
+  current = data;
+  $("#main").innerHTML =
+    card(data.query, "Someone liked")
+    + `<div class="arrow">would you recommend them</div>`
+    + card(data.candidate, "This")
+    + `<div class="answers">
+         <button class="yes" data-verdict="yes">Yes<b>Y</b></button>
+         <button data-verdict="maybe">Maybe<b>M</b></button>
+         <button class="no" data-verdict="no">No<b>N</b></button>
+         <button data-verdict="unfamiliar">Don't know it<b>?</b></button>
+       </div>
+       <div class="minor">
+         <button id="undo">Undo last answer</button>
+         <span>Keys: Y / M / N / ?</span>
+       </div>
+       <p class="note">Judge from what is in front of you — poster, genres,
+       description. You do not need to have watched it. The question is whether
+       this is a sensible thing to put in front of someone who liked the first
+       show, not whether it is good. First instinct is the right one; deliberating
+       makes you inconsistent with the snap judgements you made earlier.
+       <em>Don't know it</em> is only for when you genuinely cannot tell even from
+       the description.</p>`;
+
+  $("#main").querySelectorAll("[data-verdict]").forEach((button) => {
+    button.onclick = () => answer(button.dataset.verdict);
+  });
+  $("#undo").onclick = undo;
+}
+
+async function answer(verdict) {
+  if (!current || busy) return;
+  busy = true;
+  try {
+    await fetch("/api/verdict", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        judge: judgeName(),
+        query_id: current.query.id,
+        candidate_id: current.candidate.id,
+        verdict,
+      }),
+    });
+    await load();
+  } finally {
+    busy = false;
+  }
+}
+
+async function undo() {
+  await fetch(`/api/undo?judge=${encodeURIComponent(judgeName())}`, { method: "POST" });
+  await load();
+}
+
+// Keyboard, because 331 of these with a mouse is a chore. Ignored while typing
+// a name into the box.
+document.addEventListener("keydown", (event) => {
+  if (event.target.tagName === "INPUT") return;
+  const keys = { y: "yes", m: "maybe", n: "no", "?": "unfamiliar", "/": "unfamiliar" };
+  const verdict = keys[event.key.toLowerCase()];
+  if (verdict) { event.preventDefault(); answer(verdict); }
+  if (event.key === "u") { event.preventDefault(); undo(); }
+});
+
+load();
+</script>
+</body>
+</html>

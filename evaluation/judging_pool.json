@@ -1,0 +1,1682 @@
+{
+ "seed": 20250831,
+ "depth": 5,
+ "systems": [
+  "blocked",
+  "blocked-cert",
+  "flat",
+  "embeddings",
+  "embeddings+m"
+ ],
+ "queries": 20,
+ "picked_by": "screened",
+ "built": "2026-09-03T13:59:06+00:00",
+ "entries": [
+  {
+   "query_id": 60625,
+   "candidates": [
+    100074,
+    112164,
+    63522,
+    220056,
+    97645,
+    127372,
+    62110,
+    104711,
+    86031,
+    235930,
+    276083,
+    110126,
+    94605,
+    105248,
+    276903,
+    63926,
+    207784,
+    327414,
+    100349,
+    155594,
+    137164
+   ],
+   "sources": {
+    "100074": [
+     "embeddings+m"
+    ],
+    "112164": [
+     "embeddings"
+    ],
+    "63522": [
+     "embeddings",
+     "embeddings+m"
+    ],
+    "220056": [
+     "embeddings",
+     "embeddings+m"
+    ],
+    "97645": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "127372": [
+     "blocked"
+    ],
+    "62110": [
+     "blocked",
+     "flat"
+    ],
+    "104711": [
+     "flat"
+    ],
+    "86031": [
+     "blocked-cert"
+    ],
+    "235930": [
+     "blocked"
+    ],
+    "276083": [
+     "embeddings"
+    ],
+    "110126": [
+     "blocked"
+    ],
+    "94605": [
+     "flat"
+    ],
+    "105248": [
+     "embeddings+m"
+    ],
+    "276903": [
+     "blocked-cert"
+    ],
+    "63926": [
+     "flat"
+    ],
+    "207784": [
+     "flat"
+    ],
+    "327414": [
+     "blocked-cert"
+    ],
+    "100349": [
+     "blocked-cert"
+    ],
+    "155594": [
+     "embeddings+m"
+    ],
+    "137164": [
+     "embeddings"
+    ]
+   }
+  },
+  {
+   "query_id": 34307,
+   "candidates": [
+    65978,
+    252125,
+    71578,
+    114395,
+    249042,
+    87194,
+    241816,
+    1906,
+    85046,
+    261615,
+    80169,
+    61574,
+    63314,
+    249054,
+    2710,
+    1422,
+    58479,
+    21762,
+    81290,
+    76148,
+    215092
+   ],
+   "sources": {
+    "65978": [
+     "embeddings+m"
+    ],
+    "252125": [
+     "blocked-cert"
+    ],
+    "71578": [
+     "embeddings"
+    ],
+    "114395": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "249042": [
+     "embeddings+m"
+    ],
+    "87194": [
+     "embeddings+m"
+    ],
+    "241816": [
+     "blocked"
+    ],
+    "1906": [
+     "blocked",
+     "blocked-cert",
+     "embeddings",
+     "embeddings+m"
+    ],
+    "85046": [
+     "flat"
+    ],
+    "261615": [
+     "flat"
+    ],
+    "80169": [
+     "blocked-cert"
+    ],
+    "61574": [
+     "embeddings+m"
+    ],
+    "63314": [
+     "blocked-cert"
+    ],
+    "249054": [
+     "blocked"
+    ],
+    "2710": [
+     "blocked"
+    ],
+    "1422": [
+     "embeddings"
+    ],
+    "58479": [
+     "embeddings"
+    ],
+    "21762": [
+     "embeddings"
+    ],
+    "81290": [
+     "flat"
+    ],
+    "76148": [
+     "flat"
+    ],
+    "215092": [
+     "flat"
+    ]
+   }
+  },
+  {
+   "query_id": 2316,
+   "candidates": [
+    82834,
+    69555,
+    97727,
+    62649,
+    71578,
+    94587,
+    290231,
+    88783,
+    114053,
+    247522,
+    121509,
+    201874,
+    71683,
+    1422,
+    236450,
+    4238
+   ],
+   "sources": {
+    "82834": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "69555": [
+     "blocked-cert"
+    ],
+    "97727": [
+     "embeddings"
+    ],
+    "62649": [
+     "blocked",
+     "blocked-cert",
+     "flat",
+     "embeddings",
+     "embeddings+m"
+    ],
+    "71578": [
+     "flat"
+    ],
+    "94587": [
+     "embeddings+m"
+    ],
+    "290231": [
+     "embeddings",
+     "embeddings+m"
+    ],
+    "88783": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "114053": [
+     "embeddings+m"
+    ],
+    "247522": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "121509": [
+     "blocked"
+    ],
+    "201874": [
+     "embeddings",
+     "embeddings+m"
+    ],
+    "71683": [
+     "embeddings"
+    ],
+    "1422": [
+     "flat"
+    ],
+    "236450": [
+     "flat"
+    ],
+    "4238": [
+     "flat"
+    ]
+   }
+  },
+  {
+   "query_id": 94664,
+   "candidates": [
+    73223,
+    210946,
+    65292,
+    119495,
+    129600,
+    112160,
+    127714,
+    83095,
+    114156,
+    211051,
+    60654,
+    78941,
+    156898,
+    75208,
+    66660
+   ],
+   "sources": {
+    "73223": [
+     "blocked",
+     "flat"
+    ],
+    "210946": [
+     "embeddings"
+    ],
+    "65292": [
+     "embeddings",
+     "embeddings+m"
+    ],
+    "119495": [
+     "blocked",
+     "blocked-cert",
+     "flat",
+     "embeddings+m"
+    ],
+    "129600": [
+     "flat"
+    ],
+    "112160": [
+     "embeddings+m"
+    ],
+    "127714": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "83095": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "114156": [
+     "embeddings"
+    ],
+    "211051": [
+     "embeddings"
+    ],
+    "60654": [
+     "blocked-cert"
+    ],
+    "78941": [
+     "embeddings"
+    ],
+    "156898": [
+     "blocked",
+     "blocked-cert",
+     "flat"
+    ],
+    "75208": [
+     "flat",
+     "embeddings+m"
+    ],
+    "66660": [
+     "embeddings+m"
+    ]
+   }
+  },
+  {
+   "query_id": 1396,
+   "candidates": [
+    67744,
+    105305,
+    98735,
+    69740,
+    128015,
+    75892,
+    89171,
+    63351,
+    60059,
+    71411,
+    1408,
+    290276,
+    73671,
+    95661,
+    60574,
+    186
+   ],
+   "sources": {
+    "67744": [
+     "flat"
+    ],
+    "105305": [
+     "embeddings",
+     "embeddings+m"
+    ],
+    "98735": [
+     "embeddings"
+    ],
+    "69740": [
+     "flat"
+    ],
+    "128015": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "75892": [
+     "embeddings+m"
+    ],
+    "89171": [
+     "embeddings",
+     "embeddings+m"
+    ],
+    "63351": [
+     "blocked",
+     "blocked-cert",
+     "embeddings"
+    ],
+    "60059": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "71411": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "1408": [
+     "embeddings",
+     "embeddings+m"
+    ],
+    "290276": [
+     "flat"
+    ],
+    "73671": [
+     "flat"
+    ],
+    "95661": [
+     "embeddings+m"
+    ],
+    "60574": [
+     "flat"
+    ],
+    "186": [
+     "blocked",
+     "blocked-cert"
+    ]
+   }
+  },
+  {
+   "query_id": 66732,
+   "candidates": [
+    85937,
+    255859,
+    210232,
+    112314,
+    71912,
+    96608,
+    100757,
+    83247,
+    111110,
+    224263,
+    79948,
+    70523,
+    135238,
+    210235,
+    132750,
+    223447,
+    83125
+   ],
+   "sources": {
+    "85937": [
+     "flat"
+    ],
+    "255859": [
+     "embeddings+m"
+    ],
+    "210232": [
+     "embeddings",
+     "embeddings+m"
+    ],
+    "112314": [
+     "blocked"
+    ],
+    "71912": [
+     "flat"
+    ],
+    "96608": [
+     "embeddings+m"
+    ],
+    "100757": [
+     "flat"
+    ],
+    "83247": [
+     "embeddings"
+    ],
+    "111110": [
+     "blocked",
+     "blocked-cert",
+     "flat"
+    ],
+    "224263": [
+     "blocked",
+     "blocked-cert",
+     "embeddings"
+    ],
+    "79948": [
+     "embeddings"
+    ],
+    "70523": [
+     "embeddings",
+     "embeddings+m"
+    ],
+    "135238": [
+     "blocked",
+     "blocked-cert",
+     "flat"
+    ],
+    "210235": [
+     "blocked-cert"
+    ],
+    "132750": [
+     "embeddings+m"
+    ],
+    "223447": [
+     "blocked-cert"
+    ],
+    "83125": [
+     "blocked"
+    ]
+   }
+  },
+  {
+   "query_id": 37680,
+   "candidates": [
+    92926,
+    197067,
+    204367,
+    60059,
+    204241,
+    235356,
+    4344,
+    281004,
+    135035,
+    284744,
+    116799,
+    206180,
+    121040,
+    66584,
+    70496,
+    246483,
+    245703
+   ],
+   "sources": {
+    "92926": [
+     "embeddings",
+     "embeddings+m"
+    ],
+    "197067": [
+     "flat"
+    ],
+    "204367": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "60059": [
+     "embeddings",
+     "embeddings+m"
+    ],
+    "204241": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "235356": [
+     "flat"
+    ],
+    "4344": [
+     "flat"
+    ],
+    "281004": [
+     "blocked-cert"
+    ],
+    "135035": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "284744": [
+     "embeddings"
+    ],
+    "116799": [
+     "blocked",
+     "embeddings",
+     "embeddings+m"
+    ],
+    "206180": [
+     "flat"
+    ],
+    "121040": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "66584": [
+     "embeddings"
+    ],
+    "70496": [
+     "flat"
+    ],
+    "246483": [
+     "embeddings+m"
+    ],
+    "245703": [
+     "embeddings+m"
+    ]
+   }
+  },
+  {
+   "query_id": 95479,
+   "candidates": [
+    85937,
+    240411,
+    218843,
+    253811,
+    230915,
+    114868,
+    252193,
+    117465,
+    63926,
+    260463,
+    67075,
+    46260,
+    62104
+   ],
+   "sources": {
+    "85937": [
+     "blocked",
+     "blocked-cert",
+     "embeddings",
+     "embeddings+m"
+    ],
+    "240411": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "218843": [
+     "blocked",
+     "blocked-cert",
+     "flat"
+    ],
+    "253811": [
+     "blocked-cert",
+     "embeddings"
+    ],
+    "230915": [
+     "embeddings",
+     "embeddings+m"
+    ],
+    "114868": [
+     "flat"
+    ],
+    "252193": [
+     "embeddings+m"
+    ],
+    "117465": [
+     "blocked",
+     "blocked-cert",
+     "flat"
+    ],
+    "63926": [
+     "embeddings+m"
+    ],
+    "260463": [
+     "blocked"
+    ],
+    "67075": [
+     "embeddings"
+    ],
+    "46260": [
+     "flat",
+     "embeddings",
+     "embeddings+m"
+    ],
+    "62104": [
+     "flat"
+    ]
+   }
+  },
+  {
+   "query_id": 18165,
+   "candidates": [
+    67683,
+    265156,
+    85720,
+    63201,
+    285042,
+    235228,
+    85703,
+    1639,
+    312258,
+    280890,
+    283673,
+    111616,
+    99935,
+    256624,
+    62017,
+    82104,
+    207863,
+    206180
+   ],
+   "sources": {
+    "67683": [
+     "flat"
+    ],
+    "265156": [
+     "embeddings+m"
+    ],
+    "85720": [
+     "blocked"
+    ],
+    "63201": [
+     "flat"
+    ],
+    "285042": [
+     "embeddings+m"
+    ],
+    "235228": [
+     "embeddings"
+    ],
+    "85703": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "1639": [
+     "flat"
+    ],
+    "312258": [
+     "embeddings",
+     "embeddings+m"
+    ],
+    "280890": [
+     "embeddings+m"
+    ],
+    "283673": [
+     "embeddings",
+     "embeddings+m"
+    ],
+    "111616": [
+     "embeddings"
+    ],
+    "99935": [
+     "blocked",
+     "blocked-cert",
+     "embeddings"
+    ],
+    "256624": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "62017": [
+     "flat"
+    ],
+    "82104": [
+     "blocked-cert"
+    ],
+    "207863": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "206180": [
+     "flat"
+    ]
+   }
+  },
+  {
+   "query_id": 71728,
+   "candidates": [
+    5371,
+    110384,
+    67780,
+    222024,
+    218475,
+    247453,
+    93484,
+    68945,
+    119180,
+    82199,
+    235228,
+    100963,
+    121509,
+    14929,
+    1422,
+    71578,
+    12784
+   ],
+   "sources": {
+    "5371": [
+     "blocked",
+     "flat"
+    ],
+    "110384": [
+     "blocked"
+    ],
+    "67780": [
+     "embeddings"
+    ],
+    "222024": [
+     "flat"
+    ],
+    "218475": [
+     "embeddings+m"
+    ],
+    "247453": [
+     "blocked-cert"
+    ],
+    "93484": [
+     "embeddings"
+    ],
+    "68945": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "119180": [
+     "blocked"
+    ],
+    "82199": [
+     "flat"
+    ],
+    "235228": [
+     "flat"
+    ],
+    "100963": [
+     "embeddings+m"
+    ],
+    "121509": [
+     "blocked-cert"
+    ],
+    "14929": [
+     "flat"
+    ],
+    "1422": [
+     "embeddings",
+     "embeddings+m"
+    ],
+    "71578": [
+     "blocked",
+     "blocked-cert",
+     "embeddings",
+     "embeddings+m"
+    ],
+    "12784": [
+     "blocked-cert",
+     "embeddings",
+     "embeddings+m"
+    ]
+   }
+  },
+  {
+   "query_id": 1422,
+   "candidates": [
+    121509,
+    67804,
+    12784,
+    154167,
+    4586,
+    87093,
+    84647,
+    88378,
+    4238,
+    62649,
+    2316,
+    110384,
+    69555,
+    88366,
+    58479,
+    63522,
+    124031,
+    34435,
+    63623
+   ],
+   "sources": {
+    "121509": [
+     "embeddings+m"
+    ],
+    "67804": [
+     "blocked-cert"
+    ],
+    "12784": [
+     "embeddings+m"
+    ],
+    "154167": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "4586": [
+     "flat"
+    ],
+    "87093": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "84647": [
+     "embeddings"
+    ],
+    "88378": [
+     "flat"
+    ],
+    "4238": [
+     "flat"
+    ],
+    "62649": [
+     "blocked",
+     "flat"
+    ],
+    "2316": [
+     "flat"
+    ],
+    "110384": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "69555": [
+     "embeddings"
+    ],
+    "88366": [
+     "embeddings"
+    ],
+    "58479": [
+     "embeddings+m"
+    ],
+    "63522": [
+     "embeddings"
+    ],
+    "124031": [
+     "embeddings",
+     "embeddings+m"
+    ],
+    "34435": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "63623": [
+     "embeddings+m"
+    ]
+   }
+  },
+  {
+   "query_id": 209867,
+   "candidates": [
+    260463,
+    83095,
+    94795,
+    218843,
+    130368,
+    210946,
+    60654,
+    234721,
+    31911,
+    97175,
+    236385,
+    94664,
+    63333,
+    45790,
+    62104,
+    203805
+   ],
+   "sources": {
+    "260463": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "83095": [
+     "flat"
+    ],
+    "94795": [
+     "blocked",
+     "blocked-cert",
+     "flat"
+    ],
+    "218843": [
+     "embeddings+m"
+    ],
+    "130368": [
+     "embeddings"
+    ],
+    "210946": [
+     "embeddings",
+     "embeddings+m"
+    ],
+    "60654": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "234721": [
+     "embeddings"
+    ],
+    "31911": [
+     "flat"
+    ],
+    "97175": [
+     "embeddings",
+     "embeddings+m"
+    ],
+    "236385": [
+     "flat"
+    ],
+    "94664": [
+     "embeddings"
+    ],
+    "63333": [
+     "embeddings+m"
+    ],
+    "45790": [
+     "blocked",
+     "blocked-cert",
+     "flat"
+    ],
+    "62104": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "203805": [
+     "embeddings+m"
+    ]
+   }
+  },
+  {
+   "query_id": 33765,
+   "candidates": [
+    80246,
+    97266,
+    69293,
+    218576,
+    112442,
+    79892,
+    202905,
+    89504,
+    111474,
+    69930,
+    92204,
+    90137,
+    158691,
+    221504,
+    133064,
+    73275,
+    235997,
+    74280
+   ],
+   "sources": {
+    "80246": [
+     "embeddings",
+     "embeddings+m"
+    ],
+    "97266": [
+     "flat"
+    ],
+    "69293": [
+     "blocked-cert"
+    ],
+    "218576": [
+     "blocked"
+    ],
+    "112442": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "79892": [
+     "embeddings"
+    ],
+    "202905": [
+     "embeddings"
+    ],
+    "89504": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "111474": [
+     "flat"
+    ],
+    "69930": [
+     "embeddings+m"
+    ],
+    "92204": [
+     "embeddings+m"
+    ],
+    "90137": [
+     "embeddings"
+    ],
+    "158691": [
+     "flat",
+     "embeddings",
+     "embeddings+m"
+    ],
+    "221504": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "133064": [
+     "embeddings+m"
+    ],
+    "73275": [
+     "flat"
+    ],
+    "235997": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "74280": [
+     "flat"
+    ]
+   }
+  },
+  {
+   "query_id": 60574,
+   "candidates": [
+    31586,
+    279322,
+    1396,
+    75140,
+    213345,
+    120168,
+    222314,
+    217522,
+    76954,
+    41889,
+    116799,
+    128252,
+    73671,
+    66025,
+    93544,
+    69740,
+    78734,
+    74821,
+    237458
+   ],
+   "sources": {
+    "31586": [
+     "blocked"
+    ],
+    "279322": [
+     "embeddings"
+    ],
+    "1396": [
+     "blocked",
+     "blocked-cert",
+     "flat"
+    ],
+    "75140": [
+     "embeddings+m"
+    ],
+    "213345": [
+     "embeddings+m"
+    ],
+    "120168": [
+     "blocked"
+    ],
+    "222314": [
+     "embeddings"
+    ],
+    "217522": [
+     "embeddings+m"
+    ],
+    "76954": [
+     "flat"
+    ],
+    "41889": [
+     "embeddings",
+     "embeddings+m"
+    ],
+    "116799": [
+     "blocked-cert"
+    ],
+    "128252": [
+     "blocked"
+    ],
+    "73671": [
+     "flat"
+    ],
+    "66025": [
+     "blocked",
+     "blocked-cert",
+     "flat"
+    ],
+    "93544": [
+     "embeddings"
+    ],
+    "69740": [
+     "flat"
+    ],
+    "78734": [
+     "blocked-cert"
+    ],
+    "74821": [
+     "blocked-cert"
+    ],
+    "237458": [
+     "embeddings",
+     "embeddings+m"
+    ]
+   }
+  },
+  {
+   "query_id": 60059,
+   "candidates": [
+    92926,
+    64439,
+    146176,
+    206510,
+    37680,
+    217529,
+    1396,
+    209504,
+    71446,
+    258462,
+    58841,
+    116799,
+    63351,
+    113988,
+    227042,
+    48891
+   ],
+   "sources": {
+    "92926": [
+     "embeddings",
+     "embeddings+m"
+    ],
+    "64439": [
+     "embeddings",
+     "embeddings+m"
+    ],
+    "146176": [
+     "blocked-cert"
+    ],
+    "206510": [
+     "blocked"
+    ],
+    "37680": [
+     "embeddings",
+     "embeddings+m"
+    ],
+    "217529": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "1396": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "209504": [
+     "flat"
+    ],
+    "71446": [
+     "flat"
+    ],
+    "258462": [
+     "blocked-cert"
+    ],
+    "58841": [
+     "blocked",
+     "flat"
+    ],
+    "116799": [
+     "flat",
+     "embeddings+m"
+    ],
+    "63351": [
+     "flat"
+    ],
+    "113988": [
+     "embeddings"
+    ],
+    "227042": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "48891": [
+     "embeddings",
+     "embeddings+m"
+    ]
+   }
+  },
+  {
+   "query_id": 48891,
+   "candidates": [
+    62649,
+    1400,
+    37680,
+    92926,
+    73126,
+    88110,
+    64291,
+    215092,
+    245265,
+    39340,
+    201874,
+    79744,
+    4589,
+    232644,
+    249039,
+    58841
+   ],
+   "sources": {
+    "62649": [
+     "blocked-cert"
+    ],
+    "1400": [
+     "blocked",
+     "blocked-cert",
+     "flat"
+    ],
+    "37680": [
+     "embeddings+m"
+    ],
+    "92926": [
+     "embeddings",
+     "embeddings+m"
+    ],
+    "73126": [
+     "flat"
+    ],
+    "88110": [
+     "blocked",
+     "embeddings+m"
+    ],
+    "64291": [
+     "embeddings"
+    ],
+    "215092": [
+     "flat"
+    ],
+    "245265": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "39340": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "201874": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "79744": [
+     "flat"
+    ],
+    "4589": [
+     "flat"
+    ],
+    "232644": [
+     "embeddings"
+    ],
+    "249039": [
+     "embeddings",
+     "embeddings+m"
+    ],
+    "58841": [
+     "embeddings",
+     "embeddings+m"
+    ]
+   }
+  },
+  {
+   "query_id": 119051,
+   "candidates": [
+    82656,
+    75907,
+    99335,
+    2316,
+    79242,
+    231749,
+    88366,
+    12784,
+    136394,
+    99517,
+    214454,
+    63454,
+    107851,
+    80743,
+    89852,
+    106761,
+    112164,
+    61864,
+    299878,
+    94523
+   ],
+   "sources": {
+    "82656": [
+     "embeddings+m"
+    ],
+    "75907": [
+     "flat"
+    ],
+    "99335": [
+     "embeddings+m"
+    ],
+    "2316": [
+     "flat"
+    ],
+    "79242": [
+     "blocked-cert"
+    ],
+    "231749": [
+     "flat",
+     "embeddings+m"
+    ],
+    "88366": [
+     "embeddings"
+    ],
+    "12784": [
+     "embeddings",
+     "embeddings+m"
+    ],
+    "136394": [
+     "blocked"
+    ],
+    "99517": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "214454": [
+     "blocked"
+    ],
+    "63454": [
+     "blocked-cert"
+    ],
+    "107851": [
+     "embeddings+m"
+    ],
+    "80743": [
+     "embeddings"
+    ],
+    "89852": [
+     "embeddings"
+    ],
+    "106761": [
+     "flat"
+    ],
+    "112164": [
+     "embeddings"
+    ],
+    "61864": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "299878": [
+     "flat"
+    ],
+    "94523": [
+     "blocked",
+     "blocked-cert"
+    ]
+   }
+  },
+  {
+   "query_id": 46260,
+   "candidates": [
+    210098,
+    114868,
+    252193,
+    63926,
+    45790,
+    38693,
+    112166,
+    117465,
+    218843,
+    65930,
+    260463,
+    210879,
+    2328,
+    62104,
+    90660,
+    212989
+   ],
+   "sources": {
+    "210098": [
+     "embeddings",
+     "embeddings+m"
+    ],
+    "114868": [
+     "flat"
+    ],
+    "252193": [
+     "embeddings+m"
+    ],
+    "63926": [
+     "embeddings+m"
+    ],
+    "45790": [
+     "blocked",
+     "blocked-cert",
+     "flat"
+    ],
+    "38693": [
+     "embeddings"
+    ],
+    "112166": [
+     "embeddings",
+     "embeddings+m"
+    ],
+    "117465": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "218843": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "65930": [
+     "flat"
+    ],
+    "260463": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "210879": [
+     "embeddings+m"
+    ],
+    "2328": [
+     "embeddings"
+    ],
+    "62104": [
+     "blocked",
+     "blocked-cert",
+     "flat"
+    ],
+    "90660": [
+     "flat"
+    ],
+    "212989": [
+     "embeddings"
+    ]
+   }
+  },
+  {
+   "query_id": 117465,
+   "candidates": [
+    45923,
+    204832,
+    104711,
+    252193,
+    46260,
+    13916,
+    156898,
+    300529,
+    94795,
+    210945,
+    235930,
+    218843,
+    57041,
+    95479,
+    45790,
+    106651,
+    117678
+   ],
+   "sources": {
+    "45923": [
+     "embeddings"
+    ],
+    "204832": [
+     "blocked"
+    ],
+    "104711": [
+     "flat"
+    ],
+    "252193": [
+     "embeddings",
+     "embeddings+m"
+    ],
+    "46260": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "13916": [
+     "embeddings",
+     "embeddings+m"
+    ],
+    "156898": [
+     "blocked-cert"
+    ],
+    "300529": [
+     "embeddings",
+     "embeddings+m"
+    ],
+    "94795": [
+     "blocked"
+    ],
+    "210945": [
+     "embeddings+m"
+    ],
+    "235930": [
+     "embeddings+m"
+    ],
+    "218843": [
+     "blocked",
+     "blocked-cert",
+     "flat"
+    ],
+    "57041": [
+     "blocked-cert"
+    ],
+    "95479": [
+     "flat"
+    ],
+    "45790": [
+     "blocked",
+     "blocked-cert",
+     "flat"
+    ],
+    "106651": [
+     "embeddings"
+    ],
+    "117678": [
+     "flat"
+    ]
+   }
+  },
+  {
+   "query_id": 37854,
+   "candidates": [
+    111110,
+    229153,
+    94404,
+    75123,
+    118815,
+    45790,
+    120089,
+    117678,
+    207784,
+    300131,
+    104711,
+    207332,
+    104699,
+    271855
+   ],
+   "sources": {
+    "111110": [
+     "blocked",
+     "blocked-cert",
+     "embeddings",
+     "embeddings+m"
+    ],
+    "229153": [
+     "embeddings",
+     "embeddings+m"
+    ],
+    "94404": [
+     "flat"
+    ],
+    "75123": [
+     "embeddings+m"
+    ],
+    "118815": [
+     "embeddings",
+     "embeddings+m"
+    ],
+    "45790": [
+     "blocked"
+    ],
+    "120089": [
+     "flat"
+    ],
+    "117678": [
+     "embeddings",
+     "embeddings+m"
+    ],
+    "207784": [
+     "flat"
+    ],
+    "300131": [
+     "blocked",
+     "blocked-cert",
+     "flat"
+    ],
+    "104711": [
+     "blocked",
+     "blocked-cert"
+    ],
+    "207332": [
+     "blocked",
+     "blocked-cert",
+     "flat"
+    ],
+    "104699": [
+     "blocked-cert"
+    ],
+    "271855": [
+     "embeddings"
+    ]
+   }
+  }
+ ]
+}

@@ -658,3 +658,143 @@ predicted axes: a model reading text can describe a show TMDB never labelled.
 Preference-mode results have no explanation at all — there is no query show to
 diff against. The same three-clause mechanism would work against the dial
 settings themselves.
+
+---
+
+# v0.11 — retrieval accuracy, and a design decision that measured badly
+
+First run of report S9.1 (baseline), S9.2 (retrieval accuracy) and two of the
+S9.5 ablations. Script: `evaluation/retrieval_accuracy.py`.
+
+**Answer key.** TMDB's own `recommendations` list per show, restricted to titles
+inside this catalogue. A show is only queried at cut-off k if TMDB names at
+least k related titles present here, so a perfect system could score 1.0:
+**1,561 query shows at k=5, 395 at k=10.**
+
+Intervals are 95% bootstrap over 2,000 resamples of the query set.
+
+| System | precision@5 | precision@10 |
+|---|---|---|
+| `blocked` — the engine as deployed | 0.134 [0.126, 0.142] | 0.138 [0.125, 0.152] |
+| `blocked-cert` — certificate rule off | **0.137** [0.128, 0.145] | **0.149** [0.136, 0.163] |
+| `flat` — one vector, one cosine | 0.082 [0.075, 0.089] | 0.095 [0.085, 0.105] |
+| `embeddings` — sentence transformer + cosine | 0.087 [0.079, 0.094] | 0.089 [0.078, 0.100] |
+| `embeddings+m` — baseline plus certificate rule | 0.084 [0.078, 0.092] | 0.079 [0.068, 0.091] |
+| `popular` — non-personalised control | 0.003 | 0.001 |
+| `random` — chance | 0.003 | 0.004 |
+
+## The interpretable space beats the black box
+
+**+0.047 at k=5, paired 95% CI [0.038, 0.056]** over the sentence-transformer
+baseline — about 54% relative, and the interval is nowhere near zero. The
+research question asked whether interpretable features could stay *competitive*
+on retrieval while buying steering and explanation. On this proxy they are not
+merely competitive; they are ahead.
+
+Both systems read the same source text, so this is not a straw man: the baseline
+encodes exactly the corpus `train_model.load_corpus()` builds.
+
+## Blocking earns its place
+
+`flat` is the same numbers concatenated into one vector and compared with a
+single cosine, certificate rule held constant so blocking is the only
+difference: **+0.052 at k=5, CI [0.044, 0.060]**.
+
+The sharper observation is that `flat` (0.082) is no better than the sentence
+embeddings (0.087). Concatenating the blocks destroys precisely what makes the
+representation work — which is the "flat cosine produces mush" argument in S6.4,
+now with a number attached rather than asserted.
+
+## Negative result: the certificate penalty costs accuracy
+
+`MATURITY_PENALTY = 0.5` was set by reasoning — Teen Titans Go! was pulling
+15-rated shows into its results — and never measured. Measured, it **loses**:
+turning it off improves precision by 0.011 at k=10, CI [0.002, 0.021], entirely
+below zero. Same direction on the baseline (0.089 → 0.079).
+
+It is kept anyway, and this is a trade-off rather than an oversight. TMDB's
+answer key has no opinion about mixing certificates, so this measurement scores
+the rule against a criterion it was not built for: it exists to stop a U-rated
+cartoon ranking beside an 18-rated drama, which is a user-facing property the
+proxy cannot see. What has changed is that the cost is now quantified — roughly
+one percentage point of proxy precision — instead of assumed to be free.
+Whether 0.5 is the right strength is an open question the human-judged set
+(S9.2) is better placed to answer than this one.
+
+## The controls did their job
+
+`popular` and `random` both score 0.003. Had the popularity control been
+competitive it would mean the answer key mostly rewards recommending famous
+shows, and every other number in the table would be suspect. It does not.
+
+## Limitations to state in the report
+
+1. **Shared provenance.** The keyword block is built from TMDB metadata and the
+   answer key comes from TMDB's own recommender, which plausibly uses related
+   metadata. Some of the lead may reflect a shared source rather than better
+   modelling. The baseline reads TMDB text too, so neither side is clean; the
+   honest resolution is the human-judged set, not a bigger proxy run.
+2. **Low absolute values are structural.** Five to ten correct answers exist
+   among 3,541 candidates, so 0.134 is not "13% correct" in any user-facing
+   sense. Only the comparisons between rows carry meaning.
+3. **Agreement is a floor, not the claim.** TMDB's list is partly behavioural.
+   Scoring well means agreeing with the kind of recommender this project argues
+   is insufficient — evidence the space is not returning noise, and nothing more.
+   The claim about steering and explanation is tested with people (S9.6).
+
+---
+
+# v0.12 — the instrument for human judgement
+
+S9.2 asks for a human-judged set, and S9.1's TMDB numbers cannot substitute for
+it: agreeing with TMDB means imitating the kind of recommender this project
+argues is insufficient. `evaluation/judge.py` collects the key that does carry
+the claim. **No judgements have been collected yet** — what follows is the
+design and its reasoning, not a result.
+
+## Pooling, not exhaustive judging
+
+3,542 shows means 12.5 million possible pairs. The standard answer is **pooling**
+(Cranfield; used by TREC since 1992): for each query show, take the top *k* from
+every system under comparison, merge them, and judge that merged set once. Each
+judgement is then reused by every system, and a show no system returned cannot
+change the comparison — it scores as "not returned" for all of them either way.
+
+The pool is written to `judging_pool.json` and **shared between judges**, which
+is what makes agreement measurable, and **shuffled**, so a judge cannot tell
+which system produced a candidate or which ranked it first.
+
+## Three decisions worth defending
+
+**The controls are excluded from the pool.** Pooling all seven systems produced
+799 pairs — over three hours of judging — because `popular` and `random` each
+contribute five candidates per query that no other system returns. They are
+already settled at 0.003 on the TMDB key. Pooling only the five systems that are
+actually close gives **331 pairs over 20 query shows, about an hour**, and
+spends the scarce resource — human attention — on the comparison that is in
+doubt.
+
+**Query shows are sampled from the 400 most popular titles.** A judgement
+between two shows the judge has never heard of is noise. Popularity is the only
+proxy for familiarity available without asking first. `?` records "I don't know
+one of these" rather than forcing a guess.
+
+**The question is "would you recommend this to someone who liked X?"** Not "is
+it similar", which invites judging by genre label, and not "did you enjoy it",
+which is the evaluative question §6.3 keeps separate from the descriptive one.
+
+## Scoring
+
+`retrieval_accuracy.py --truth human` reads the judgements and scores exactly
+the systems that were pooled, at exactly the depth that was judged — anything
+deeper was never shown to anyone and would be counted as wrong for not having
+been looked at. A candidate is relevant when the majority of judges say yes;
+`maybe` counts as not relevant, which is the conservative reading.
+
+With two or more judges it reports **Cohen's kappa** on the overlap: agreement
+corrected for the agreement you would get by chance, since two judges who both
+say no to most things agree often by accident. Landis and Koch (1977) read
+0.41–0.60 as moderate, 0.61–0.80 as substantial.
+
+A second judge is what turns this from one person's opinion into a measurement,
+and is the thing most worth arranging before the write-up.

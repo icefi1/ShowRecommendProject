@@ -4,7 +4,7 @@ Read `CLAUDE.md` first for project rules. This file is what a new session needs
 on top of it: what exists, what was decided and why, and what is mid-flight.
 
 Last commit: `d42005e` — "Add batch 3 labels and make the sampler choose its own targets"
-Branch: `feature/model-crowd-accounts`. PR #3 open against `main`. PRs #1, #2 merged.
+Branch: `feature/model-crowd-accounts`. PR #4 open against `main`; #1, #2, #3 merged.
 
 ---
 
@@ -55,7 +55,7 @@ tmdb/          ingestion + episode-derived pacing features
 labelling/     schema (source of truth), batch export, labels.jsonl
 training/      multi-label ridge over frozen sentence-transformer embeddings
 app/           FastAPI + similarity engine + accounts + static frontend
-evaluation/    rerunnable audits of what the engine outputs
+evaluation/    rerunnable measurement scripts (report S9), fixed seeds
 docs/          feature_schema.md is the running research log
 ```
 
@@ -63,6 +63,11 @@ docs/          feature_schema.md is the running research log
 - `docs/feature_schema.md` is the prose companion + every finding, versioned v0.1→v0.9.
 - Similarity is **blocked weighted cosine**, weights set per query. Neighbours
   always computed in full dimensional space.
+- Results are **paged**, 24 at a time: `_rank()` takes an `offset`, the API
+  returns `total`, and the interface appends the next page as you reach the
+  bottom (`IntersectionObserver`) or press the button. Ranking is always over
+  the whole catalogue - paging only changes which slice comes back, so the
+  ordering is identical whether you ask for 12 results or 3,541.
 - Predicted axes are **displayed but do NOT drive ranking** — at 78 labels the
   magnitudes are compressed by ridge shrinkage, so ordering is trustworthy and
   absolute values are not. Same for crowd-corrected scores.
@@ -103,6 +108,19 @@ source asserts it, it is a FACT — not votable, written from TMDB. Binary facts
 `crime`, `mystery`, `action`) take TMDB's side of 0.5 with the model supplying
 degree. The 29 judgement axes are votable. A schema assertion fails the build if
 `horror`/`thriller`/`romance`/`historical` ever move into the fact set.
+
+**The space beats the sentence-embedding baseline on retrieval.** precision@5
+0.134 vs 0.087 over 1,561 query shows, paired 95% CI [0.038, 0.056], measured
+against TMDB's own recommendation lists (`evaluation/retrieval_accuracy.py`).
+Blocking earns its place too: flat cosine over the same numbers scores 0.082,
+which is no better than the black box. Read it as a floor, not the claim - the
+answer key is another recommender's opinion and partly behavioural.
+
+**Third negative result: the certificate penalty costs accuracy.** Turning
+`MATURITY_PENALTY` off improves precision@10 by 0.011, CI [0.002, 0.021]. Kept
+deliberately - TMDB's key has no opinion about mixing certificates, so the proxy
+scores the rule against a criterion it was not built for - but the cost is now
+measured rather than assumed. Whether 0.5 is the right strength is open.
 
 **Crowd fusion** is Bayesian, κ=8: `(κ·prior + Σ vote_targets) / (κ + n)`. Zero
 votes returns the model's prediction, so it works on day one. Every vote stores
@@ -162,6 +180,12 @@ have neither a TMDB genre nor a surviving keyword**, and 19.3% have no keyword.
 
 ## 7. Other open items
 
+- **331 relevance judgements are waiting to be made.** `judge.py` is built and
+  the pool is fixed; nobody has judged anything yet. About an hour, resumable,
+  and it is the evidence S9.2 needs. A second judge (kappa) matters more than a
+  bigger pool.
+- **Is `MATURITY_PENALTY = 0.5` too strong?** It measurably costs proxy
+  precision (above). The human-judged set is the right place to settle it.
 - **Preference mode has no explanations.** Now the only open half of S6.6:
   `explain()` needs two catalogue rows to diff, and a dial query has no query
   show. The same three-clause shape would work diffed against the dial settings

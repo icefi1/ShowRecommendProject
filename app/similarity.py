@@ -197,8 +197,15 @@ class FeatureSpace:
             scores, denominator, out=np.zeros_like(scores), where=denominator > 0
         )
 
-    def similar_to_show(self, show_id, weights=None, limit=10):
-        """Rank the catalogue against one show the user picked."""
+    def similar_to_show(self, show_id, weights=None, limit=10, offset=0):
+        """
+        Rank the catalogue against one show the user picked.
+
+        `offset` skips that many higher-ranked results, which is what lets the
+        interface page through the ranking instead of stopping at the first
+        screenful. The whole catalogue is scored either way - paging changes
+        which slice is returned, never how anything is ranked.
+        """
         index = self.index_by_id.get(show_id)
         if index is None:
             return []
@@ -210,9 +217,15 @@ class FeatureSpace:
         combined = self._apply_maturity(combined, self.maturity[index])
         combined[index] = -1.0  # never recommend the query back to itself
 
-        return self._rank(combined, per_block, limit, compare_to=index)
+        # Scoring the query show at -1 puts it last in the ordering, so capping
+        # the pageable depth one short of the catalogue is what keeps it out of
+        # the final page rather than a second filtering pass.
+        return self._rank(
+            combined, per_block, limit, compare_to=index,
+            offset=offset, available=len(self.catalogue) - 1,
+        )
 
-    def by_preference(self, structure_targets, genre_targets, weights=None, limit=10):
+    def by_preference(self, structure_targets, genre_targets, weights=None, limit=10, offset=0):
         """
         Rank against a query the user built from dials rather than a show.
 
@@ -248,7 +261,7 @@ class FeatureSpace:
         combined, per_block = self._combine(query, weights)
         # If the user moved the maturity dial, treat it as the target rating.
         combined = self._apply_maturity(combined, (structure_targets or {}).get("maturity"))
-        return self._rank(combined, per_block, limit, compare_to=None)
+        return self._rank(combined, per_block, limit, compare_to=None, offset=offset)
 
     # ------------------------------------------------------------- internals
 
@@ -282,15 +295,35 @@ class FeatureSpace:
         gap = np.abs(self.maturity - float(query_maturity))
         return combined * (1.0 - MATURITY_PENALTY * gap)
 
-    def _rank(self, combined, per_block, limit, compare_to):
-        """Take the top `limit` scores and attach an explanation to each."""
-        # argpartition finds the top k without sorting all 500 - the standard
-        # trick when k is small relative to n.
-        top = np.argpartition(-combined, min(limit, len(combined) - 1))[:limit]
-        top = top[np.argsort(-combined[top])]
+    def _rank(self, combined, per_block, limit, compare_to, offset=0, available=None):
+        """
+        Take one page of the ranking and attach an explanation to each result.
+
+        `offset` and `limit` describe a window into the ordering: the page runs
+        from `offset` to `offset + limit`. `available` is how many results the
+        query can legitimately return, which is the catalogue minus the query
+        show itself when there is one.
+
+        argpartition finds the top k without sorting all 3,542 - the standard
+        trick when k is small relative to n - and here k is the BOTTOM of the
+        requested page, not its top. Paging deeper therefore costs slightly more
+        work per request, but page 5 still avoids a full sort. Once the page
+        reaches the end of the catalogue there is nothing left to partition
+        against, so a plain sort is both correct and cheaper.
+        """
+        available = len(combined) if available is None else min(available, len(combined))
+        depth = min(offset + limit, available)
+        if offset >= available:
+            return []
+
+        if depth >= len(combined):
+            order = np.argsort(-combined)
+        else:
+            top = np.argpartition(-combined, depth - 1)[:depth]
+            order = top[np.argsort(-combined[top])]
 
         results = []
-        for index in top:
+        for index in order[offset:depth]:
             show = dict(self.catalogue[index])
             show["score"] = round(float(combined[index]), 4)
             show["maturity_gap"] = None

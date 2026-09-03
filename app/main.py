@@ -20,7 +20,7 @@ matrix-vector product over the whole catalogue.
 import time
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -42,6 +42,20 @@ app = FastAPI(title="Show Recommender", version="0.1.0")
 space = FeatureSpace()
 
 
+# How many results one request returns, and the ceiling on that.
+#
+# It was 12, which is roughly one screen and no more: a user who did not see
+# what they wanted had no way to look further, however good the 13th result was.
+# The interface now pages through the ranking with an offset, so this is a page
+# size rather than a cap on what the query can find.
+PAGE_SIZE = 24
+MAX_PAGE_SIZE = 60
+
+# The title dropdown is a separate list with its own limit. It scrolls inside a
+# fixed-height box, so a larger number costs nothing on screen.
+SEARCH_LIMIT = 40
+
+
 class Weights(BaseModel):
     """Block weights. Set at query time - this is what makes the space steerable."""
 
@@ -56,7 +70,10 @@ class PreferenceQuery(BaseModel):
     structure: dict[str, float] = Field(default_factory=dict)
     genres: list[str] = Field(default_factory=list)
     weights: Weights = Field(default_factory=Weights)
-    limit: int = Field(12, ge=1, le=50)
+    limit: int = Field(PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE)
+    # Where in the ranking this page starts. Bounded above by the catalogue, so
+    # a hand-written request cannot ask for an arbitrarily deep page.
+    offset: int = Field(0, ge=0, le=10_000)
 
 
 def load_predicted_axes():
@@ -428,7 +445,7 @@ def axes():
 
 
 @app.get("/api/search")
-def search(q: str = "", limit: int = 10):
+def search(q: str = "", limit: int = SEARCH_LIMIT):
     results = space.search(q, limit=limit)
     return {"query": q, "results": results}
 
@@ -439,7 +456,8 @@ def similar(
     genre: float = DEFAULT_WEIGHTS["genre"],
     keywords: float = DEFAULT_WEIGHTS["keywords"],
     structure: float = DEFAULT_WEIGHTS["structure"],
-    limit: int = 12,
+    limit: int = Query(PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    offset: int = Query(0, ge=0),
 ):
     if show_id not in space.index_by_id:
         raise HTTPException(status_code=404, detail="Unknown show id")
@@ -449,12 +467,19 @@ def similar(
         show_id,
         weights={"genre": genre, "keywords": keywords, "structure": structure},
         limit=limit,
+        offset=offset,
     )
     elapsed = (time.perf_counter() - started) * 1000
 
     return {
         "query_show": space.catalogue[space.index_by_id[show_id]],
         "results": results,
+        "offset": offset,
+        # Every show except the query itself is ranked, so this is how far the
+        # interface may page. It is deliberately the true number rather than a
+        # comfortable one: the scores are shown alongside, so a user paging into
+        # the tail can see for themselves that the matches have thinned out.
+        "total": len(space.catalogue) - 1,
         # Surfaced in the interface so the efficiency claim is visible rather
         # than asserted.
         "query_ms": round(elapsed, 3),
@@ -469,9 +494,16 @@ def preference(query: PreferenceQuery):
         query.genres,
         weights=query.weights.model_dump(),
         limit=query.limit,
+        offset=query.offset,
     )
     elapsed = (time.perf_counter() - started) * 1000
-    return {"results": results, "query_ms": round(elapsed, 3)}
+    return {
+        "results": results,
+        "offset": query.offset,
+        # No query show to exclude here, so the whole catalogue is rankable.
+        "total": len(space.catalogue),
+        "query_ms": round(elapsed, 3),
+    }
 
 
 @app.get("/")
