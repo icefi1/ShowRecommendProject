@@ -21,11 +21,11 @@ It can't tell you why, and it can't take a request like:
 
 > "Another horror series with lots of jumpscares, but without the convoluted plot."
 
-That sentence has three parts. A genre, an experiential feature I want more of,
-and one I want less of. Every recommender I can actually use will take the first
-part and ignore the other two, because underneath it is a black box — a matrix
-factorisation or a neural embedding where the dimensions mean nothing to anyone,
-including the people who built it.
+That sentence has three parts: a genre, a thing I want more of, and a thing I
+want less of. Every recommender I can actually use handles the first part and
+ignores the other two. The reason is that underneath they are all some kind of
+black box, usually matrix factorisation or a neural embedding. The dimensions in
+those don't mean anything, so there is nothing for the user to grab hold of.
 
 This project is an attempt at the opposite. Every show gets scored 0–1 on 37
 named axes: genre things like `horror` and `crime`, mood things like `bleak` and
@@ -52,9 +52,9 @@ black box they replace. My answer, measured two different ways, is no.
 - Every recommendation carries a one-line explanation that comes out of the same
   representation used to rank, so it cannot disagree with the ranking. 95.3% of
   explanations name a shared genre and 70.7% name a shared keyword.
-- The design decisions are measured rather than asserted, including two that
-  measured badly and one that failed its hypothesis outright. Those are in here
-  too, because a design chapter with no failures in it is not a real one.
+- I measured my design decisions instead of just asserting them. Two of them
+  came out badly and one failed completely. I have written those up as well,
+  since leaving them out would make the rest of it less believable.
 
 ---
 
@@ -62,10 +62,11 @@ black box they replace. My answer, measured two different ways, is no.
 
 ### 2.1 The closest existing work
 
-The **MovieLens Tag Genome** (Vig, Sen and Riedl, 2012) is the thing this is most
-like. It scores ~9,700 films against ~1,080 tags on a continuous 0–1 relevance
-scale, computed by a model over user tags, ratings and reviews. It's the proof
-that a continuous, named feature space over a catalogue is a workable idea.
+The **MovieLens Tag Genome** (Vig, Sen and Riedl, 2012) is the closest thing to
+what I built. It scores about 9,700 films against about 1,080 tags on a
+continuous 0–1 scale, worked out by a model over user tags, ratings and reviews.
+It is the main evidence that this kind of feature space works at all, so most of
+my design starts from it.
 
 Three things make mine different:
 
@@ -95,18 +96,20 @@ catalogue: **1,034 reviews across 3,542 shows, 19% coverage, median zero.** Most
 shows have no reviews at all. As a corpus it's unusable, and I'm not scraping
 IMDb — their terms forbid it and this is submitted work with an ethics section.
 
-So the model reads what I do have: TMDB synopses plus the episode-overview
-corpus, 2.82 million words across 93,447 episodes. That's a real limitation and
-I'd rather state it plainly than bury it: my scores describe what shows are
-*about* more reliably than what watching them *feels like*.
+So the model reads what I actually have: TMDB synopses plus every episode
+overview, 2.82 million words across 93,447 episodes. This is a genuine
+limitation and it affects the whole project, so I would rather say it here than
+hide it in the conclusion. My scores are better at describing what a show is
+*about* than what watching it *feels like*, which is not what I set out to
+build.
 
 [TODO: mention Penha and Hauff (2020) and the Amazon Reviews dataset as the
 fallbacks I considered, and say why I didn't use them — mainly title alignment
 cost against a TV catalogue.]
 
-### 2.3 The taxonomy gap, which is the real argument
+### 2.3 The taxonomy gap
 
-This is the finding I'd lead with if I could only keep one.
+If I could only keep one finding from this project it would be this one.
 
 **TMDB's television genre list has 15 entries and none of them is Horror.**
 Neither is Thriller, Romance, History, or Fantasy. Those exist in TMDB's *film*
@@ -120,11 +123,13 @@ Over my catalogue that means:
 | Shows that can be labelled Romance | **0** |
 | *Stranger Things* is labelled | Action & Adventure, Mystery, Sci-Fi & Fantasy |
 
-The shows exist. The vocabulary to ask for them doesn't. A recommender
-restricted to catalogue genres cannot accept "a romance" as a request at all.
-That's a stronger justification for building an interpretable feature space than
-any accuracy number I could produce, because it isn't a question of doing the
-same job better — it's a job the catalogue's own taxonomy cannot do.
+The shows are all there. The words to ask for them are not. A recommender that
+only knows catalogue genres cannot accept "a romance" as a request, full stop.
+
+I think this justifies the project better than any accuracy number does. If my
+system were only a slightly better version of what already exists, it would be
+hard to argue for. This is a request the catalogue's own taxonomy cannot
+represent at all.
 
 ---
 
@@ -132,10 +137,11 @@ same job better — it's a job the catalogue's own taxonomy cannot do.
 
 ### 3.1 The feature space
 
-37 axes, fixed and defined in writing before any scoring happened. Fixing the
-schema up front matters: if you let a model invent tags it produces near
-duplicates — `creepy` and `spooky` — and near duplicates push identical shows
-apart, which destroys the distance metric that the whole system is.
+37 axes, written down and defined before any scoring happened. Fixing the schema
+first matters more than it looks. If you let a model invent its own tags it
+produces near-duplicates like `creepy` and `spooky`, and then two shows that are
+basically identical end up far apart because one got tagged with each. Since the
+entire system is a distance calculation, that breaks it.
 
 Scores, not booleans, because a binary tag can't say "lots of jumpscares, few
 twists", and that distinction is the entire point.
@@ -184,8 +190,9 @@ So it's applied separately as a multiplier: `score *= 1 - 0.5 * |maturity gap|`.
 The widest possible gap halves a score; one step costs about 15%. It demotes
 rather than excludes, which is the intent.
 
-That 0.5 was reasoned into existence and never measured. When I finally measured
-it, it lost — see 5.5. I kept it anyway, and I explain why there.
+I picked 0.5 because it seemed about right, and then never checked it. When I
+did eventually measure it, it turned out to be making the results slightly
+worse (5.5). I kept it, and I explain why there.
 
 ### 3.5 The crowd layer
 
@@ -215,10 +222,13 @@ axes the model is worst at, for free, from use.
 
 ### 3.6 Explanation
 
-Compare the query vector to the result vector, take the largest agreements and
-divergences, and write them as a sentence. It falls out of the representation, so
-there's no separate explanation model that could disagree with the ranking — a
-property most post-hoc explanation methods can't claim.
+Compare the query vector to the result vector, take the biggest agreements and
+differences, and turn them into a sentence.
+
+The useful part is that this comes out of the same numbers used to do the
+ranking. There is no second model producing explanations, so the explanation
+cannot contradict the result. Post-hoc methods like LIME cannot promise that,
+because they are approximating a model from the outside.
 
 The ordering is genre, then keywords, then structure, and that ordering came from
 a measurement rather than taste (5.6).
@@ -392,21 +402,31 @@ merged set once, reuse each judgement across all systems. The pool is shuffled s
 I can't tell which system produced a candidate, and fixed so a second judge sees
 identical pairs.
 
-**Two design corrections I had to make, which are findings in themselves.**
+**I got this wrong twice before it worked, and both mistakes are worth writing
+up.**
 
-My first attempt sampled query shows from the 400 most popular titles, on the
-assumption that popularity approximates familiarity. It came back **80–90% "don't
-know it"** and was worthless — 14 of 331 pairs marked relevant. So I added a
-screening step: I tick which shows I've actually seen, and the pool is built only
-from those. The asymmetry is the point — only the *query* show needs to be known,
-because the candidate can be judged from its poster and description. Screening
-one side of the pair rather than both is what keeps this to an hour.
+My first attempt picked query shows from the 400 most popular titles, assuming
+popular meant I would know them. It came back **80–90% "don't know it"**. Out of
+331 pairs I marked 14 as relevant, so there was almost nothing there to measure
+with.
 
-Second, I was originally counting "don't know it" as a miss, which punishes a
-system for surfacing an obscure show exactly as hard as for surfacing a bad one.
-Those are different failures. The standard treatment of incomplete judgements is
-the condensed list (Sakai, 2007; the same reasoning behind bpref, Buckley and
-Voorhees, 2004): drop unassessable results and score what's left.
+The fix was to add a screening step where I tick the shows I have actually
+watched, and build the pool only from those. The thing I had missed is that the
+two sides of a pair are not the same. I have to know the *query* show, because
+the question is what I would recommend to someone who liked it. The candidate I
+only need to be able to look at, since a poster and a description are enough to
+say whether it looks like a sensible suggestion. Screening one side instead of
+both is the difference between an hour of judging and a week of it.
+
+The second mistake was in my scoring. I was counting "don't know it" as a miss,
+which meant a system got punished for showing me an obscure show exactly as hard
+as for showing me a bad one. Those are not the same failure and only one of them
+is the system's fault.
+
+This is a known problem in information retrieval, and the standard fix is the
+condensed list (Sakai, 2007, following the same reasoning as bpref in Buckley
+and Voorhees, 2004): throw away the results nobody could assess and score what
+is left.
 
 **Results.** 752 verdicts over 20 query shows I've seen:
 
@@ -426,17 +446,22 @@ The coverage column is its own result: the embedding baseline returns markedly
 more shows I couldn't assess (2.1 of 5 against 3.1). The strict measure was
 penalising it for that and it still lost.
 
-**Caveats, stated up front.** One judge, and that judge built the system. 12 of 20
-queries were usable for the condensed measure. The intervals are wide.
+**Caveats, before anyone else points them out.** There is one judge and it is
+me, the person who built the thing being measured. Only 12 of the 20 queries
+were usable for the condensed measure. The intervals are wide.
 
 [TODO: second judge on the same pool. Cohen's kappa between us is what turns this
 from my opinion into a measurement, and it's the single highest-value thing left.]
 
-By accident I got a version of this already: I judged 79 identical pairs twice,
-about forty minutes apart, under two spellings of my name that the scorer treated
-as two people. Test–retest agreement was **kappa 0.661** — substantial on the
-Landis and Koch scale — and 11 of the 12 answers I changed were pairs I'd first
-marked unknown. It's a real reliability measure and worth reporting.
+I did get a version of this by accident. I judged the same 79 pairs twice about
+forty minutes apart, once from the terminal and once in the browser, and because
+I typed my name with different capitalisation the scorer treated me as two
+different judges. Agreement between the two of me was **kappa 0.661**, which
+Landis and Koch call substantial, and 11 of the 12 answers I changed were pairs
+I had first marked as unknown.
+
+It was a bug, but it is also a test–retest reliability measure, which is
+something I would not otherwise have had.
 
 ### 5.5 A design decision that measured badly
 
@@ -562,18 +587,21 @@ scores are *right*, not whether the axes are *distinct*.]
 
 ## 6. What I'd do differently
 
-**The review corpus was the plan and it didn't survive contact with the data.**
-I should have measured TMDB review coverage in week one instead of assuming an
-endpoint's existence meant it was populated. Everything downstream inherited that.
+**The review corpus was the whole plan and the data did not support it.** I
+assumed that because TMDB has a reviews endpoint, it would have reviews in it. I
+should have spent an hour checking coverage in week one. Instead I found out
+later, and everything downstream had to change because of it.
 
-**I guessed at familiarity instead of asking.** The first two judging sessions
-produced almost nothing because I assumed popular meant known. Two hours of my
-own judging went into finding that out, when a screening step would have cost
-twenty minutes to build.
+**I guessed instead of asking.** The first two judging sessions produced almost
+nothing usable because I assumed popular shows would be shows I knew. I spent
+about two hours judging pairs to discover that, and the screening step that
+fixed it took twenty minutes to build.
 
-**I set constants by reasoning and measured them far too late.** The certificate
-penalty is the clearest case. It sounded obviously right, so it went unmeasured
-for months, and when I finally tested it it was costing accuracy.
+**I set constants by reasoning and left them untested for months.** The
+certificate penalty is the obvious one. It sounded so sensible that I never
+questioned it, and when I finally measured it, it was quietly costing me
+accuracy. If a number in my code was chosen because it felt right, that is a
+reason to test it sooner, not later.
 
 ---
 
