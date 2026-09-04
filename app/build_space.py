@@ -249,6 +249,22 @@ def build():
             # rating - see similarity.py.
             "certificate": certificate_label(s)[0],
             "maturity": round(certificate(s), 3),
+            # Every keyword TMDB has for this show, for display only.
+            #
+            # Deliberately not the same set as the keyword BLOCK above. That
+            # block drops any keyword appearing on fewer than three shows,
+            # because a keyword on one show cannot create similarity with
+            # anything and only adds a noisy dimension. But those same rare
+            # keywords are often the most recognisable ones a person would look
+            # for - Breaking Bad loses "crystal meth", "meth lab" and "dea
+            # agent" to that filter - so showing only the block's vocabulary
+            # would look broken to anyone who knows the show.
+            #
+            # Two different jobs: what the engine ranks on, and what a reader is
+            # told the show is about.
+            "keywords_all": sorted(
+                {k["name"] for k in s.get("keywords", {}).get("results", [])}
+            ),
             # TMDB's own similarity, kept as the ground-truth proxy for S9.2.
             # Stored as bare id lists by fetch_shows.py - the full show records
             # TMDB returns here were 20% of the raw file and only the ids are

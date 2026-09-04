@@ -379,12 +379,27 @@ def show_detail(show_id: int, request: Request):
         for column, name in enumerate(structure_names)
     }
 
-    # The show's most distinctive keywords - highest IDF weight, so the ones
-    # that actually say something rather than "drama".
+    # Keywords in two groups, because they do two different jobs.
+    #
+    # The first group is every keyword that survived the build's minimum of
+    # three shows, ordered by IDF weight so the most distinctive come first.
+    # These are the ones the similarity engine actually ranks on, and the ones
+    # explanations quote.
+    #
+    # The second is everything else TMDB tagged the show with. A keyword on one
+    # or two shows cannot create similarity with anything, so it earns no
+    # dimension - but it is often the most recognisable thing about the show.
+    # Breaking Bad's "crystal meth", "meth lab" and "dea agent" all land here,
+    # and a panel that hid them would look broken to anyone who has seen it.
     keyword_row = space.blocks["keywords"][index]
     vocabulary = space.block_labels["keywords"]
     ranked = sorted(range(len(vocabulary)), key=lambda i: -keyword_row[i])
-    show["top_keywords"] = [vocabulary[i] for i in ranked[:12] if keyword_row[i] > 0]
+    used = [vocabulary[i] for i in ranked if keyword_row[i] > 0]
+
+    show["keywords_ranking"] = used
+    show["keywords_other"] = [k for k in show.get("keywords_all", []) if k not in set(used)]
+    # Kept so an older cached page still renders something sensible.
+    show["top_keywords"] = used[:12]
 
     predicted = apply_facts(show_id, PREDICTED.get(show_id, {}))
     show["has_model"] = bool(predicted)

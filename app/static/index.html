@@ -82,8 +82,17 @@
   .chosen {
     margin-top: 10px; padding: 10px 12px; background: var(--panel-2);
     border: 1px solid var(--accent); border-radius: 6px; font-size: 14px;
+    display: grid; grid-template-columns: 46px 1fr; gap: 11px; align-items: center;
+    cursor: pointer; transition: background .12s;
+  }
+  .chosen:hover { background: #262a3b; }
+  .chosen:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .chosen img, .chosen .noposter {
+    width: 46px; height: 69px; object-fit: cover; border-radius: 4px;
+    background: var(--panel); display: block;
   }
   .chosen small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .chosen .hint { color: var(--accent); font-size: 11px; }
 
   .slider-row { margin: 12px 0; }
   .slider-row header { display: flex; justify-content: space-between; padding: 0;
@@ -117,6 +126,8 @@
 
   .card { cursor: pointer; transition: border-color .12s, background .12s; }
   .card:hover { border-color: var(--accent); background: var(--panel-2); }
+
+  .chip.faint { opacity: .55; }
 
   .empty { color: var(--muted); padding: 40px 0; text-align: center; }
 
@@ -358,6 +369,16 @@ $("#q").oninput = (e) => {
   }, 140);
 };
 
+$("#chosen").onclick = (e) => {
+  const el = e.target.closest("[data-show]");
+  if (el) openDetail(parseInt(el.dataset.show, 10));
+};
+$("#chosen").onkeydown = (e) => {
+  if (e.key !== "Enter" && e.key !== " ") return;
+  const el = e.target.closest("[data-show]");
+  if (el) { e.preventDefault(); openDetail(parseInt(el.dataset.show, 10)); }
+};
+
 $("#hits").onclick = (e) => {
   const el = e.target.closest("[data-id]");
   if (!el) return;
@@ -450,8 +471,22 @@ async function run(append = false) {
 function render(data, showQuery, append = false) {
   if (showQuery && data.query_show) {
     const q = data.query_show;
-    $("#chosen").innerHTML =
-      `<div class="chosen">${q.name}<small>${q.year} · ${q.genres.join(", ")} · ${q.episodes} episodes</small></div>`;
+    // The show you searched with is a show like any other, so it opens the same
+    // detail panel the results do. It was the one card on screen that did
+    // nothing when clicked.
+    const thumb = q.poster
+      ? `<img src="https://image.tmdb.org/t/p/w92${q.poster}" alt="">`
+      : `<div class="noposter"></div>`;
+    $("#chosen").innerHTML = `
+      <div class="chosen" data-show="${q.id}" role="button" tabindex="0"
+           title="See everything about ${esc(q.name)}">
+        ${thumb}
+        <div>
+          <b>${esc(q.name)}</b>
+          <small>${q.year} · ${q.genres.join(", ")} · ${q.episodes} episodes</small>
+          <small class="hint">Click for details</small>
+        </div>
+      </div>`;
   }
 
   if (!append && !data.results.length) {
@@ -598,6 +633,15 @@ async function openDetail(id) {
     </div>
     <p class="overview">${s.overview || "No synopsis available."}</p>
 
+    <h4>Keywords</h4>
+    <div class="chips">${(s.keywords_ranking || []).map((k) => `<span class="chip">${esc(k)}</span>`).join("") || "—"}</div>
+    ${(s.keywords_other || []).length ? `
+      <div class="chips" style="margin-top:6px">${s.keywords_other.map((k) => `<span class="chip faint">${esc(k)}</span>`).join("")}</div>
+      <div class="note">The bright ones are on at least three shows, so they carry
+        weight in the similarity engine and can appear in explanations. The dim ones
+        are too rare to create similarity with anything — they describe the show but
+        do not move the ranking.</div>` : ""}
+
     <h4>Does this describe the show? — vote per axis</h4>
     <div class="bars" id="vote-bars">${predicted}</div>
 
@@ -639,9 +683,6 @@ async function openDetail(id) {
     <div class="note">Reviews are the text the scoring model learns from — a synopsis
       can say a house is haunted, only a viewer can say it made them jump.</div>
     <div id="review-list"></div>
-
-    <h4>Most distinctive keywords</h4>
-    <div class="chips">${s.top_keywords.map((k) => `<span class="chip">${k}</span>`).join("") || "—"}</div>
 
     <div class="sheet-actions">
       <button class="btn" id="find-similar">Find shows like this</button>
