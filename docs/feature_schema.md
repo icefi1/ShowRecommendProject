@@ -861,3 +861,61 @@ re-run when the two matrices converge.
 
 78 shows against 37 variables is thin for PCA; the usual rule of thumb wants
 185–370. Treat the label column as indicative.
+
+---
+
+# v0.14 — the axes rank badly alone, and not clearly better together
+
+The gap this closes: every retrieval number so far came from TMDB metadata
+blocks. The 37 predicted axes were shown in the interface, took votes, and had
+no effect on results, so nothing had measured whether the project's actual
+contribution retrieves anything.
+
+## Alone
+
+| System | precision@5 |
+|---|---|
+| `blocked` | 0.134 |
+| `embeddings` | 0.087 |
+| `axes` (raw cosine) | 0.033 |
+| `axes-centred` | 0.040 |
+| `random` | 0.003 |
+
+Eleven to thirteen times chance, so the axes carry real signal, but nowhere near
+enough to rank on at 78 labels. Centring helps because every show scores
+something on `drama` and `tense`, so raw vectors all point the same way and
+cosine ends up describing the average programme.
+
+## Together, and a mistake worth recording
+
+Blending `(1 - w) * blocked + w * axes` at w = 0.15 lifts precision@5 from 0.134
+to 0.145, paired CI [0.006, 0.017], clear of zero. That was written up as a
+result for about ten minutes.
+
+It is not one. The weight was chosen by trying nine values and keeping the best,
+on the same 1,561 query shows the improvement was then reported on.
+
+`evaluation/axis_weight.py` does it properly — weight chosen on half the query
+shows, measured on the other half:
+
+| | |
+|---|---|
+| Weight chosen on tuning half | 0.15 |
+| Held out, `blocked` | 0.1332 |
+| Held out, `blocked` + axes | 0.1391 |
+| Difference | **+0.0059, CI [−0.0015, +0.0136]** |
+
+The gain halves and the interval crosses zero. Winner's curse, behaving exactly
+as advertised.
+
+## What this settles
+
+The axes stay out of ranking. `app/main.py` already excluded them, with a comment
+guessing that compressed magnitudes at low label counts would make results worse;
+that guess now has a measurement behind it.
+
+Direction is positive at every weight from 0.05 to 0.30 and the curve is smooth,
+so this is worth re-running at 150+ labels. If ridge shrinkage is what is
+drowning the signal, more labels should pull the interval clear. If it does not
+move, the axes belong in the interface and the explanations rather than in the
+distance metric — a legitimate finding, and a less convenient one.

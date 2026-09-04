@@ -376,6 +376,46 @@ def build_systems(space, args, max_k=None):
         systems["embeddings"] = embedding_cosine
         systems["embeddings+m"] = embedding_cosine_maturity
 
+    # 4b. The 37 predicted axes, which is the thing the project is actually
+    #     about. Everything else in this table ranks on TMDB metadata; this row
+    #     ranks on the model's own named features and nothing else, so it is the
+    #     only row that answers "are recommendations built from interpretable
+    #     features any good?".
+    axis_scores = load_predicted_axes(space)
+    if axis_scores is not None:
+        raw = unit_rows(axis_scores)
+
+        def axes_cosine(row):
+            return top_rows(raw @ raw[row], row, max_k)
+
+        # Every show scores somewhat on drama, tense, emotional_intensity and so
+        # on, so the raw vectors all point in roughly the same direction and
+        # cosine spends most of its range describing the average show rather
+        # than this one. Centring each axis first removes that shared baseline,
+        # which is the difference between "both are television" and "both are
+        # unusually bleak". Worth measuring both ways rather than guessing.
+        centred = unit_rows(axis_scores - axis_scores.mean(axis=0))
+
+        def axes_centred(row):
+            return top_rows(centred @ centred[row], row, max_k)
+
+        systems["axes"] = axes_cosine
+        systems["axes-centred"] = axes_centred
+
+        # The question that actually decides whether the axes should join the
+        # ranking: not "are they better than the metadata blocks" but "do they
+        # add anything to them". Two mixing weights, because one number would be
+        # a guess dressed as a result.
+        for weight in (0.15, 0.30):
+            def blended(row, weight=weight):
+                query = {name: matrix[row] for name, matrix in space.blocks.items()}
+                combined, _ = space._combine(query, DEFAULT_WEIGHTS)
+                combined = maturity_penalty(combined, space, row)
+                return top_rows((1 - weight) * combined + weight * (centred @ centred[row]),
+                                row, max_k)
+
+            systems[f"blocked+axes {weight:.2f}"] = blended
+
     # 5. Non-personalised control. The catalogue arrives from TMDB in
     #    popularity order, so the most popular shows are simply the first rows.
     #    Recommenders are routinely beaten by this; it is here to check.
@@ -396,6 +436,42 @@ def build_systems(space, args, max_k=None):
     systems["random"] = random_rows
 
     return systems
+
+
+def load_predicted_axes(space):
+    """
+    The model's 37 axis scores per show, in catalogue row order.
+
+    Returns None if the model has not been trained, so the rest of the table
+    still runs. Shows the model has no row for get zeros, which cosine scores at
+    0 against everything - they simply never get recommended by this system.
+    """
+    path = ROOT / "training" / "predictions.csv"
+    if not path.exists():
+        print("No training/predictions.csv, so the axis rows are skipped.")
+        return None
+
+    import csv
+
+    with open(path, encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    if not rows:
+        return None
+
+    axes = [key for key in rows[0] if key not in ("id", "name")]
+    by_id = {int(row["id"]): [float(row[axis]) for axis in axes] for row in rows}
+
+    matrix = np.zeros((len(space.catalogue), len(axes)), dtype=np.float32)
+    missing = 0
+    for row, show in enumerate(space.catalogue):
+        scores = by_id.get(show["id"])
+        if scores is None:
+            missing += 1
+            continue
+        matrix[row] = scores
+
+    print(f"Predicted axes: {len(axes)} axes, {len(space.catalogue) - missing} shows scored")
+    return matrix
 
 
 def load_embeddings(space):

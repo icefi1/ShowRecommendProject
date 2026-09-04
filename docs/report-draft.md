@@ -577,11 +577,82 @@ labelled set is large enough for the two matrices to converge.
 rule of thumb wants five to ten observations per variable, so 185 to 370. The
 label-side numbers should be treated as indicative.
 
-[TODO: 5.9 label validity — Cohen's kappa between my own hand scores and model
+### 5.9 Do my own axes actually rank anything?
+
+This is the section I most needed and least wanted to write.
+
+Everything above ranks on TMDB metadata: genre flags, keyword weights, structure
+measures. The 37 axes my model predicts are shown in the interface and take
+votes, but they do not affect what comes back. So the obvious question, and the
+first one anyone reading this should ask, is whether the interpretable features
+this project is named after retrieve anything at all.
+
+**Ranking on the axes alone.** Same harness, same answer key, one more row:
+
+| System | precision@5 |
+|---|---|
+| `blocked` (TMDB metadata) | 0.134 |
+| `embeddings` (baseline) | 0.087 |
+| `axes` (my 37, raw cosine) | 0.033 |
+| `axes-centred` | 0.040 |
+| `random` | 0.003 |
+
+So the axes are much worse than metadata at finding related shows — but they are
+eleven to thirteen times better than chance, so they are clearly carrying real
+information, just not enough of it to rank on their own at 78 labels.
+
+Centring helps, which makes sense: every show scores something on `drama`,
+`tense` and `emotional_intensity`, so the raw vectors all point in roughly the
+same direction and cosine spends most of its range describing the average
+television programme rather than this one.
+
+**The question that actually matters** is not whether the axes beat the metadata
+but whether they add anything to it:
+
+```
+score = (1 - w) · blocked_score  +  w · axis_similarity
+```
+
+My first attempt at this looked great. Mixing at w = 0.15 lifted precision@5 from
+0.134 to 0.145, a paired interval of [0.006, 0.017] nowhere near zero. I had
+started writing it up as a result.
+
+It isn't one. I picked w = 0.15 by trying nine values and taking the best, on the
+same 1,561 query shows I then reported the improvement on. That is choosing a
+parameter on your test set, and it inflates whatever you find.
+
+Doing it properly — split the query shows in half, choose w on one half, measure
+on the other, which it has never seen:
+
+| | |
+|---|---|
+| Tuning half picks | w = 0.15 (smooth curve, peak between 0.10 and 0.15) |
+| Held-out: `blocked` alone | 0.1332 |
+| Held-out: `blocked` + axes at 0.15 | 0.1391 |
+| Difference | **+0.0059, 95% CI [−0.0015, +0.0136]** |
+
+The interval crosses zero. The improvement roughly halves once the weight is
+chosen somewhere it isn't measured, which is the winner's curse doing exactly
+what it's supposed to do.
+
+**What I conclude.** The direction is positive at every weight between 0.05 and
+0.30 and the curve is smooth rather than jagged, so I don't think this is noise —
+but suggestive isn't a result, and I'm not going to claim one. The axes stay out
+of ranking, which is what the code already did for a reason that was guessed
+(`main.py` says the magnitudes are compressed at low label counts) and is now
+measured.
+
+The obvious next experiment is to re-run this at 150+ labels. If the gain is real
+and it's currently being drowned by ridge shrinkage, more labels should pull the
+interval clear of zero. If it doesn't move, the axes belong in the interface and
+the explanations, not in the distance metric — which would still be a legitimate
+finding, just a less convenient one.
+
+[TODO: 5.10 label validity — Cohen's kappa between my own hand scores and model
 output on 100 shows. Not done, and distinct from 5.8: this measures whether the
 scores are *right*, not whether the axes are *distinct*.]
 
-[TODO: 5.10 usability study, 5 participants, SUS plus time-to-completion.]
+[TODO: 5.11 usability study, 5 participants, SUS plus time-to-completion.]
 
 ---
 
