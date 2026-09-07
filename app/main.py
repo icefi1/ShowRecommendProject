@@ -35,7 +35,7 @@ from labelling.schema import BINARY_AXES, FACT_AXES, TMDB_GENRE_SOURCE, VOTABLE_
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 
-app = FastAPI(title="Show Recommender", version="0.1.0")
+app = FastAPI(title="Spectra", version="0.1.0")
 
 # Loaded once. A FeatureSpace is read-only after construction, so sharing one
 # across requests is safe and avoids re-reading 500 rows per call.
