@@ -71,6 +71,14 @@ STRUCTURE_PHRASING = {
     "guest_star_mean": ("has a larger ensemble cast", "has a tighter core cast"),
     "entity_density": ("has more names and factions to track", "has a simpler cast of characters"),
     "runtime_stdev": ("has more varied episode lengths", "has more uniform episode lengths"),
+
+    # Film axes. Different names from the television ones, so one table serves
+    # both catalogues and each only ever matches its own.
+    "runtime": ("is longer", "is shorter"),
+    "audience_reach": ("is much more widely seen", "is far less widely seen"),
+    "release_recency": ("is more recent", "is older"),
+    "part_of_series": ("is part of a franchise", "is a standalone film"),
+    "ensemble_size": ("has a larger cast", "has a smaller cast"),
 }
 
 
@@ -103,6 +111,34 @@ GENRE_PHRASING = {
     "Western": ("western", "westerns"),
 }
 
+# The film catalogue has its own genre vocabulary - 19 headings against
+# television's 15 - and needs its own nouns, because a film is not a "show".
+# Worth noticing for the report: this list contains Horror, Thriller, Romance
+# and History, and the television list does not. The taxonomy gap in the report
+# is specific to TMDB's television side, which makes it a sharper finding: the
+# vocabulary exists, television simply does not get it.
+GENRE_PHRASING_FILM = {
+    "Action": ("action", "action films"),
+    "Adventure": ("adventure", "adventure films"),
+    "Animation": ("animated", "animated films"),
+    "Comedy": ("comedy", "comedies"),
+    "Crime": ("crime", "crime films"),
+    "Documentary": ("documentary", "documentaries"),
+    "Drama": ("drama", "dramas"),
+    "Family": ("family", "family films"),
+    "Fantasy": ("fantasy", "fantasy films"),
+    "History": ("historical", "historical films"),
+    "Horror": ("horror", "horror films"),
+    "Music": ("music", "music films"),
+    "Mystery": ("mystery", "mysteries"),
+    "Romance": ("romantic", "romances"),
+    "Science Fiction": ("sci-fi", "sci-fi films"),
+    "TV Movie": ("made-for-television", "made-for-television films"),
+    "Thriller": ("thriller", "thrillers"),
+    "War": ("war", "war films"),
+    "Western": ("western", "westerns"),
+}
+
 # How many structural differences an explanation may end with.
 #
 # It was two. One is a trade-off made on purpose: the structure block is the
@@ -117,11 +153,17 @@ MAX_STRUCTURE_POINTS = 1
 class FeatureSpace:
     """The catalogue, its blocked vectors, and queries over them."""
 
-    def __init__(self):
-        arrays = np.load(HERE / "feature_space.npz")
+    def __init__(self, prefix="feature_space"):
+        """
+        `prefix` picks which catalogue to load. Television is the default;
+        films live in feature_space_movie.* because their structure block is a
+        different set of axes and cannot share a matrix.
+        """
+        self.prefix = prefix
+        arrays = np.load(HERE / f"{prefix}.npz")
         self.blocks = {name: arrays[name] for name in ("genre", "keywords", "structure")}
 
-        meta = json.loads((HERE / "feature_space.json").read_text(encoding="utf-8"))
+        meta = json.loads((HERE / f"{prefix}.json").read_text(encoding="utf-8"))
         self.catalogue = meta["catalogue"]
         self.block_labels = meta["blocks"]
 
@@ -143,6 +185,14 @@ class FeatureSpace:
         maturity_col = self.block_labels["structure"].index("maturity")
         self.maturity = self.blocks["structure"][:, maturity_col].astype(np.float32)
 
+        # Anime is a view over this catalogue rather than a separate one, so it
+        # is a boolean per row and the filtering below is a mask, not a second
+        # feature space. See build_space.is_anime for how the flag is decided.
+        self.is_anime = np.array(
+            [bool(show.get("is_anime")) for show in self.catalogue], dtype=bool
+        )
+        self.kind = (self.catalogue[0].get("kind", "tv") if self.catalogue else "tv")
+
         # How many shows carry each genre. Used only when writing explanations:
         # the commonest shared genre is the broadest description of the pair
         # ("dramas") and the rarest is the most specific ("crime"), so the pair
@@ -151,19 +201,50 @@ class FeatureSpace:
         # binary and therefore has no IDF of its own.
         self.genre_counts = self.blocks["genre"].sum(axis=0)
 
+    # -------------------------------------------------------------- filtering
+
+    def allowed_rows(self, only_anime=False, include_anime=True):
+        """
+        Which rows a query may return, as a boolean mask.
+
+        Returns None for "everything", which lets the common case skip masking
+        entirely rather than multiplying by an all-true array 3,542 times.
+
+        `only_anime` is the anime tab. `include_anime` is the toggle on the
+        other tabs - people who do not watch anime were getting a third of a
+        results page they had no use for, and people who only watch it had no
+        way to say so.
+        """
+        if only_anime:
+            return self.is_anime
+        if include_anime:
+            return None
+        return ~self.is_anime
+
+    def count_allowed(self, allowed):
+        """How many results a filtered query can return, for paging."""
+        return len(self.catalogue) if allowed is None else int(allowed.sum())
+
     # ------------------------------------------------------------ searching
 
-    def search(self, term, limit=10):
+    def search(self, term, limit=10, only_anime=False, include_anime=True):
         """
         Find shows by title. Exact prefix matches rank above substring matches,
         which is what a user typing a title expects.
+
+        The filter applies here too: searching from the anime tab should not
+        offer titles that tab cannot then rank.
         """
         term = term.strip().lower()
         if not term:
             return []
 
+        allowed = self.allowed_rows(only_anime, include_anime)
+
         starts, contains = [], []
         for index, name in enumerate(self.search_names):
+            if allowed is not None and not allowed[index]:
+                continue
             if name.startswith(term):
                 starts.append(index)
             elif term in name:
@@ -197,7 +278,8 @@ class FeatureSpace:
             scores, denominator, out=np.zeros_like(scores), where=denominator > 0
         )
 
-    def similar_to_show(self, show_id, weights=None, limit=10, offset=0):
+    def similar_to_show(self, show_id, weights=None, limit=10, offset=0,
+                        only_anime=False, include_anime=True):
         """
         Rank the catalogue against one show the user picked.
 
@@ -217,15 +299,29 @@ class FeatureSpace:
         combined = self._apply_maturity(combined, self.maturity[index])
         combined[index] = -1.0  # never recommend the query back to itself
 
+        # Filtered-out rows are pushed below every real score rather than
+        # removed, so the ranking machinery below is unchanged and there is no
+        # second array to keep in step with the first.
+        allowed = self.allowed_rows(only_anime, include_anime)
+        available = self.count_allowed(allowed)
+        if allowed is not None:
+            combined = np.where(allowed, combined, -np.inf)
+            # The query show occupies one of the allowed slots only if it
+            # passes the filter itself.
+            available -= 1 if allowed[index] else 0
+        else:
+            available -= 1
+
         # Scoring the query show at -1 puts it last in the ordering, so capping
         # the pageable depth one short of the catalogue is what keeps it out of
         # the final page rather than a second filtering pass.
         return self._rank(
             combined, per_block, limit, compare_to=index,
-            offset=offset, available=len(self.catalogue) - 1,
+            offset=offset, available=available,
         )
 
-    def by_preference(self, structure_targets, genre_targets, weights=None, limit=10, offset=0):
+    def by_preference(self, structure_targets, genre_targets, weights=None, limit=10,
+                      offset=0, only_anime=False, include_anime=True):
         """
         Rank against a query the user built from dials rather than a show.
 
@@ -261,7 +357,13 @@ class FeatureSpace:
         combined, per_block = self._combine(query, weights)
         # If the user moved the maturity dial, treat it as the target rating.
         combined = self._apply_maturity(combined, (structure_targets or {}).get("maturity"))
-        return self._rank(combined, per_block, limit, compare_to=None, offset=offset)
+
+        allowed = self.allowed_rows(only_anime, include_anime)
+        if allowed is not None:
+            combined = np.where(allowed, combined, -np.inf)
+
+        return self._rank(combined, per_block, limit, compare_to=None, offset=offset,
+                          available=self.count_allowed(allowed))
 
     # ------------------------------------------------------------- internals
 
@@ -368,6 +470,8 @@ class FeatureSpace:
         the less informative "both drama crimes".
         """
         names = self.block_labels["genre"]
+        phrasing = GENRE_PHRASING_FILM if self.kind == "movie" else GENRE_PHRASING
+        noun_fallback = "films" if self.kind == "movie" else "shows"
         shared = np.minimum(self.blocks["genre"][query_index], self.blocks["genre"][result_index])
         positions = [i for i in range(len(names)) if shared[i] > 0]
         if not positions:
@@ -377,13 +481,14 @@ class FeatureSpace:
         positions.sort(key=lambda i: -self.genre_counts[i])
         head_genre = names[positions[0]]
         # A genre TMDB added after this table was written still gets a sentence.
-        _, noun = GENRE_PHRASING.get(head_genre, (head_genre.lower(), head_genre.lower() + " shows"))
+        _, noun = phrasing.get(
+            head_genre, (head_genre.lower(), f"{head_genre.lower()} {noun_fallback}"))
 
         if len(positions) == 1:
             return f"both {noun}"
 
         modifier_genre = names[positions[-1]]
-        modifier, _ = GENRE_PHRASING.get(modifier_genre, (modifier_genre.lower(), ""))
+        modifier, _ = phrasing.get(modifier_genre, (modifier_genre.lower(), ""))
         return f"both {modifier} {noun}"
 
     def _keyword_clause(self, query_index, result_index, max_keywords):

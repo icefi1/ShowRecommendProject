@@ -59,6 +59,36 @@ US_CERTIFICATE_SCALE = {
 }
 
 
+def is_anime(record):
+    """
+    Is this anime?
+
+    TMDB has no anime category. It is a production tradition, not a genre, so
+    there is no field to read and the test has to be built from what TMDB does
+    record. Two signals, either of which is enough:
+
+      1. Japanese origin AND the Animation genre. Catches the bulk of it and is
+         hard to argue with - a Japanese animated series is anime by any
+         definition anyone uses.
+      2. The `anime` keyword. Catches co-productions and Japanese-language
+         titles TMDB files under another country, and catches the handful that
+         are animated abroad in the style and marketed as anime.
+
+    Neither alone is sufficient. Origin plus genre misses 18 titles the keyword
+    finds; the keyword alone misses 3 that origin plus genre finds. Together
+    they identify 205 of 3,542 shows.
+
+    The deliberate exclusion is "Japanese live action" - Alice in Borderland is
+    Japanese and not anime, and origin alone would wrongly sweep it in.
+    """
+    countries = record.get("origin_country") or []
+    genres = {g["name"] for g in record.get("genres", [])}
+    keywords = {k["name"].lower() for k in record.get("keywords", {}).get("results", [])}
+
+    japanese_animation = "JP" in countries and "Animation" in genres
+    return bool(japanese_animation or "anime" in keywords)
+
+
 def percentile_rank(values):
     """
     Map values onto 0-1 by rank rather than magnitude.
@@ -249,6 +279,12 @@ def build():
             # rating - see similarity.py.
             "certificate": certificate_label(s)[0],
             "maturity": round(certificate(s), 3),
+            # Which catalogue this row belongs to, and whether it is anime.
+            # Anime is a view rather than a third kind: an anime series is a
+            # television series, so it carries kind "tv" and is_anime true, and
+            # the interface decides whether to include it.
+            "kind": "tv",
+            "is_anime": is_anime(s),
             # Every keyword TMDB has for this show, for display only.
             #
             # Deliberately not the same set as the keyword BLOCK above. That

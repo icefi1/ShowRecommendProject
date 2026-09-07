@@ -21,6 +21,8 @@ Regenerate pipeline (all outputs gitignored):
 
 ```
 python tmdb/fetch_shows.py          # ~3,542 shows, ~2.6 min
+python tmdb/fetch_movies.py         # ~5,462 films, ~8.4 min
+python app/build_movie_space.py     # feature_space_movie.npz + .json
 python tmdb/fetch_episodes.py       # ~93,447 episodes, ~6 min
 python tmdb/episode_features.py     # per-show pacing features
 python app/build_space.py           # feature_space.npz + .json
@@ -35,6 +37,8 @@ python evaluation/explanation_audit.py   # explanation quality, fixed seed
 | | Value |
 |---|---|
 | Shows | 3,542 (full Netflix GB listing on TMDB) |
+| Films | 5,462 (separate catalogue, own feature space) |
+| Anime | 312 (205 series + 107 films, a flag not a catalogue) |
 | Episodes | 93,447 |
 | Episode-overview corpus | 2.82M words |
 | Feature space | 1,446 dims — genre 15, keywords 1,418, structure 13 |
@@ -186,6 +190,15 @@ have neither a TMDB genre nor a surviving keyword**, and 19.3% have no keyword.
   bigger pool.
 - **Is `MATURITY_PENALTY = 0.5` too strong?** It measurably costs proxy
   precision (above). The human-judged set is the right place to settle it.
+- **Films have no predicted axes.** `training/predictions.csv` covers the 3,542
+  shows only. The model reads text, so scoring films is just a re-run of the
+  encoder over 5,462 more overviews - it has not been done, so the film detail
+  panel has no vote bars.
+- **Anime cannot rank across kinds.** A series recommends series, a film
+  recommends films. Needs a shared structure block that would be mostly empty.
+- **The evaluation is television-only.** Every number in S9 predates the film
+  catalogue. `retrieval_accuracy.py` would need a `--space` argument to score
+  films, and the film catalogue has its own `tmdb_recommended` lists ready.
 - **Preference mode has no explanations.** Now the only open half of S6.6:
   `explain()` needs two catalogue rows to diff, and a dial query has no query
   show. The same three-clause shape would work diffed against the dial settings

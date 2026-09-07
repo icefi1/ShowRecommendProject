@@ -199,6 +199,68 @@
   .stat span { color: var(--muted); font-size: 13px; }
 
   /* --- final CTA --------------------------------------------------------- */
+  /* --- the three catalogues --------------------------------------------- */
+  .trio { display: flex; gap: 14px; margin-top: 44px; height: 430px; }
+  .cat {
+    position: relative; flex: 1 1 0; min-width: 0; overflow: hidden;
+    border-radius: 16px; border: 1px solid var(--line); background: var(--panel);
+    text-align: left; padding: 0; font: inherit; color: inherit; cursor: pointer;
+    /* flex-grow is the only thing animating, so the browser can do the whole
+       row in one layout pass. Animating width or transform instead would
+       either fight the flexbox or leave gaps where the other two used to be. */
+    transition: flex-grow .5s cubic-bezier(.22,.61,.36,1), border-color .35s ease;
+  }
+  /* Hovering any card shrinks all three, then the hovered one overrides it and
+     grows. Doing it in that order means the untouched cards give up their space
+     smoothly instead of snapping. */
+  .trio:hover .cat { flex-grow: .62; }
+  .trio .cat:hover, .trio .cat:focus-visible { flex-grow: 2.5; border-color: var(--cat); }
+  .cat:focus-visible { outline: 2px solid var(--cat); outline-offset: 3px; }
+
+  .cat > img.face {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: cover; object-position: 50% 22%;
+    filter: saturate(.85) brightness(.72); transition: filter .5s ease, transform .5s ease;
+  }
+  .cat:hover > img.face { filter: saturate(1) brightness(.82); transform: scale(1.04); }
+  .cat::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(180deg, rgba(13,14,19,.15) 0%, rgba(13,14,19,.62) 45%, rgba(13,14,19,.95) 100%);
+  }
+
+  .cat-body { position: relative; z-index: 2; height: 100%; display: flex;
+    flex-direction: column; justify-content: flex-end; padding: 22px; }
+  .cat-body h3 { margin: 0; font-size: 24px; letter-spacing: -.01em; }
+  .cat-count { margin: 3px 0 0; color: var(--muted); font-size: 13px; }
+  .cat-count b { color: var(--cat); font-weight: 600; }
+
+  /* Hidden until the card opens. grid-template-rows animates from 0fr to 1fr,
+     which is the one way to transition to a height you do not know in advance
+     without measuring it in script. */
+  .cat-more {
+    display: grid; grid-template-rows: 0fr; opacity: 0;
+    transition: grid-template-rows .5s cubic-bezier(.22,.61,.36,1), opacity .35s ease;
+  }
+  .cat:hover .cat-more, .cat:focus-visible .cat-more { grid-template-rows: 1fr; opacity: 1; }
+  .cat-more > div { overflow: hidden; min-height: 0; }
+  .cat-more p { margin: 12px 0 0; font-size: 14.5px; color: #d7dbe8; max-width: 46ch; }
+  .thumbs { display: flex; gap: 8px; margin-top: 14px; }
+  .thumbs img {
+    width: 62px; border-radius: 6px; border: 1px solid rgba(255,255,255,.14);
+    display: block; flex-shrink: 0;
+  }
+
+  /* Stacked and always open on a narrow screen, where hover does not exist. */
+  @media (max-width: 760px) {
+    .trio { flex-direction: column; height: auto; }
+    .cat { min-height: 260px; }
+    .trio:hover .cat, .trio .cat:hover { flex-grow: 1; }
+    .cat-more { grid-template-rows: 1fr; opacity: 1; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .cat, .cat-more, .cat > img.face { transition-duration: .01ms; }
+  }
+
   .final { text-align: center; }
   .final .cta { font-size: 16px; padding: 13px 30px; border-radius: 26px; }
   footer { padding: 34px clamp(20px, 6vw, 80px) 50px; border-top: 1px solid var(--line);
@@ -370,12 +432,13 @@
          alt="A vast grid of tiles receding to the horizon, a scattering of them lit.">
     <div class="pin-inner reveal">
       <div class="kicker">Built on real data</div>
-      <h2>500 shows. 46,264 episodes.</h2>
+      <h2>9,004 titles. 93,447 episodes.</h2>
       <div class="stats">
         <div class="stat"><b>37</b><span>named axes</span></div>
-        <div class="stat"><b>461</b><span>dimensions</span></div>
-        <div class="stat"><b>46,264</b><span>episodes analysed</span></div>
-        <div class="stat"><b>0.5&nbsp;ms</b><span>per query</span></div>
+        <div class="stat"><b>3,542</b><span>series</span></div>
+        <div class="stat"><b>5,462</b><span>films</span></div>
+        <div class="stat"><b>93,447</b><span>episodes analysed</span></div>
+        <div class="stat"><b>2&nbsp;ms</b><span>per query</span></div>
       </div>
       <div class="strip" style="margin-top:34px">
         <img src="https://image.tmdb.org/t/p/w185/anFx9aTOOYqgS3v7x3R84Kz67ly.jpg" alt="" loading="lazy">
@@ -422,6 +485,78 @@
         <h3>Viewing history</h3>
         <p>Everything you’ve looked at, so you can find your way back to it.</p>
       </div>
+    </div>
+  </div>
+</section>
+
+<!-- 7b .......................................................... catalogues -->
+<section id="catalogues">
+  <div class="wrap reveal">
+    <div class="kicker">Three catalogues</div>
+    <h2>Television, film, and anime.</h2>
+    <p class="lede">TMDB keeps films and series apart, and they genuinely are
+      different: a series has episodes, seasons and a shape across a run, and a
+      film has none of that. So each gets its own feature space, built from the
+      measurements that actually apply to it. <strong>Anime sits across both</strong>
+      &mdash; and on the other two tabs you can switch it off.</p>
+
+    <div class="trio">
+      <button class="cat" data-go="tv" style="--cat:#7aa2f7">
+        <img class="face" src="https://image.tmdb.org/t/p/w500/anFx9aTOOYqgS3v7x3R84Kz67ly.jpg" alt="" loading="lazy">
+        <div class="cat-body">
+          <h3>TV Shows</h3>
+          <p class="cat-count"><b>3,542</b> series &middot; 93,447 episodes</p>
+          <div class="cat-more"><div>
+            <p>The full Netflix GB series listing. Thirteen measured structure
+              axes come from the episodes themselves &mdash; how long they run, how
+              much they vary, whether a season builds slowly or opens strong.</p>
+            <div class="thumbs">
+              <img src="https://image.tmdb.org/t/p/w185/uOOtwVbSr4QDjAGIifLDwpb2Pdl.jpg" alt="Stranger Things" loading="lazy">
+              <img src="https://image.tmdb.org/t/p/w185/vUUqzWa2LnHIVqkaKVlVGkVcZIW.jpg" alt="Peaky Blinders" loading="lazy">
+              <img src="https://image.tmdb.org/t/p/w185/1QdXdRYfktUSONkl1oD5gc6Be0s.jpg" alt="Squid Game" loading="lazy">
+              <img src="https://image.tmdb.org/t/p/w185/9PFonBhy4cQy7Jz20NpMygczOkv.jpg" alt="Wednesday" loading="lazy">
+            </div>
+          </div></div>
+        </div>
+      </button>
+
+      <button class="cat" data-go="movie" style="--cat:#e6a765">
+        <img class="face" src="https://image.tmdb.org/t/p/w500/qJ2tW6WMUDux911r6m7haRef0WH.jpg" alt="" loading="lazy">
+        <div class="cat-body">
+          <h3>Movies</h3>
+          <p class="cat-count"><b>5,462</b> films</p>
+          <div class="cat-more"><div>
+            <p>A film has one runtime and no seasons, so it is measured on its
+              own terms: how long, how widely seen, how recent, how large the
+              cast, and whether it belongs to a franchise.</p>
+            <div class="thumbs">
+              <img src="https://image.tmdb.org/t/p/w185/jSziioSwPVrOy9Yow3XhWIBDjq1.jpg" alt="Fight Club" loading="lazy">
+              <img src="https://image.tmdb.org/t/p/w185/Cw4hIUIAmSYfK9QfaUW5igp9La.jpg" alt="Forrest Gump" loading="lazy">
+              <img src="https://image.tmdb.org/t/p/w185/sPX89Td70IDDjVr85jdSBb4rWGr.jpg" alt="Batman Begins" loading="lazy">
+              <img src="https://image.tmdb.org/t/p/w185/hr0L2aueqlP2BYUblTTjmtn0hw4.jpg" alt="The Dark Knight Rises" loading="lazy">
+            </div>
+          </div></div>
+        </div>
+      </button>
+
+      <button class="cat" data-go="anime" style="--cat:#b98cf5">
+        <img class="face" src="https://image.tmdb.org/t/p/w500/fHpKWq9ayzSk8nSwqRuaAUemRKh.jpg" alt="" loading="lazy">
+        <div class="cat-body">
+          <h3>Anime</h3>
+          <p class="cat-count"><b>312</b> titles &middot; series and films</p>
+          <div class="cat-more"><div>
+            <p>TMDB has no anime category, because it is a production tradition
+              rather than a genre. This tab builds one: Japanese animation, plus
+              anything the catalogue itself tags as anime.</p>
+            <div class="thumbs">
+              <img src="https://image.tmdb.org/t/p/w185/39wmItIWsg5sZMyRUHLkWBcuVCM.jpg" alt="Spirited Away" loading="lazy">
+              <img src="https://image.tmdb.org/t/p/w185/cHhJzdUGcEBq6av4wr9jsIvUITH.jpg" alt="Frieren" loading="lazy">
+              <img src="https://image.tmdb.org/t/p/w185/7NAvPYPAu7MeHwP8E9sn81PqsRh.jpg" alt="Spy x Family" loading="lazy">
+              <img src="https://image.tmdb.org/t/p/w185/13kOl2v0nD2OLbVSHnHk8GUFEhO.jpg" alt="Howl's Moving Castle" loading="lazy">
+            </div>
+          </div></div>
+        </div>
+      </button>
     </div>
   </div>
 </section>
@@ -530,6 +665,16 @@ function openAuth(which) {
 function closeAuth() { $("#auth").hidden = true; }
 
 $("#nav-signup").onclick = () => openAuth("signup");
+
+// Clicking a catalogue card asks for an account, since the recommender is
+// behind sign-in. The chosen tab is remembered so the app opens on it once
+// they are through, rather than dropping everyone on television.
+document.querySelectorAll(".cat[data-go]").forEach((card) => {
+  card.onclick = () => {
+    try { localStorage.setItem("scope", card.dataset.go); } catch (e) { /* private mode */ }
+    openAuth("signup");
+  };
+});
 $("#nav-login").onclick = () => openAuth("login");
 $("#final-signup").onclick = () => openAuth("signup");
 $("#final-login").onclick = () => openAuth("login");

@@ -42,6 +42,26 @@ app = FastAPI(title="Show Recommender", version="0.1.0")
 space = FeatureSpace()
 
 
+def load_movie_space():
+    """
+    The film catalogue, if it has been built.
+
+    Optional on purpose: the television side has to keep working on a checkout
+    where nobody has run the film pipeline, and the interface disables that tab
+    rather than failing.
+    """
+    if not (HERE / "feature_space_movie.npz").exists():
+        return None
+    try:
+        return FeatureSpace("feature_space_movie")
+    except (OSError, ValueError, KeyError) as error:
+        print(f"Film catalogue present but unreadable, skipping it: {error}")
+        return None
+
+
+movie_space = load_movie_space()
+
+
 # How many results one request returns, and the ceiling on that.
 #
 # It was 12, which is roughly one screen and no more: a user who did not see
@@ -54,6 +74,53 @@ MAX_PAGE_SIZE = 60
 # The title dropdown is a separate list with its own limit. It scrolls inside a
 # fixed-height box, so a larger number costs nothing on screen.
 SEARCH_LIMIT = 40
+
+
+# The three tabs. "anime" is not a third catalogue - it is the television
+# catalogue filtered to the anime flag - so it maps onto the same feature space
+# with a mask. Films get their own space because their structure axes are
+# genuinely different (no episodes, no seasons, no per-episode pacing).
+SCOPES = ("tv", "movie", "anime")
+
+
+def space_for(scope, show_id=None):
+    """
+    Which feature space a tab queries.
+
+    The anime tab is the awkward one: anime exists in both catalogues - 205
+    series and 107 films - and they cannot share a feature space because their
+    structure blocks are different sets of axes. So when the tab knows which
+    title it is working from, the space is whichever catalogue holds that id;
+    when it does not (drawing dials, or a search that spans both) it falls back
+    to television.
+
+    A consequence worth stating plainly: an anime series recommends anime
+    series and an anime film recommends anime films. Ranking across the two
+    would need a shared structure block, and inventing one that describes both
+    a 12-episode series and a 2-hour film would mean throwing away most of what
+    each block measures.
+    """
+    if scope == "movie":
+        if movie_space is None:
+            raise HTTPException(
+                status_code=503,
+                detail="The film catalogue has not been built yet. Run "
+                       "tmdb/fetch_movies.py then app/build_movie_space.py.",
+            )
+        return movie_space
+
+    if scope == "anime" and show_id is not None:
+        if show_id in space.index_by_id:
+            return space
+        if movie_space is not None and show_id in movie_space.index_by_id:
+            return movie_space
+
+    return space
+
+
+def filters(scope, include_anime):
+    """Turn the tab and its toggle into the engine's two filter arguments."""
+    return {"only_anime": scope == "anime", "include_anime": bool(include_anime)}
 
 
 class Weights(BaseModel):
@@ -71,6 +138,8 @@ class PreferenceQuery(BaseModel):
     genres: list[str] = Field(default_factory=list)
     weights: Weights = Field(default_factory=Weights)
     limit: int = Field(PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE)
+    scope: str = "tv"
+    include_anime: bool = True
     # Where in the ranking this page starts. Bounded above by the catalogue, so
     # a hand-written request cannot ask for an arbitrarily deep page.
     offset: int = Field(0, ge=0, le=10_000)
@@ -364,8 +433,14 @@ def disagreements(min_votes: int = 3, limit: int = 40):
 
 
 @app.get("/api/show/{show_id}")
-def show_detail(show_id: int, request: Request):
-    """Everything the detail panel needs for one show."""
+def show_detail(show_id: int, request: Request, scope: str = "tv"):
+    """Everything the detail panel needs for one title."""
+    if scope not in SCOPES:
+        raise HTTPException(status_code=400, detail=f"scope must be one of {SCOPES}")
+
+    # Ids are only unique within a catalogue - TMDB numbers films and shows
+    # separately - so the panel has to be told which one it is looking at.
+    space = space_for(scope, show_id)
     index = space.index_by_id.get(show_id)
     if index is None:
         raise HTTPException(status_code=404, detail="Unknown show id")
@@ -448,21 +523,62 @@ def show_detail(show_id: int, request: Request):
 
 
 @app.get("/api/axes")
-def axes():
-    """Everything the interface needs to draw its controls."""
+def axes(scope: str = "tv", include_anime: bool = True):
+    """
+    Everything the interface needs to draw its controls, for one catalogue.
+
+    Scope-dependent because the two catalogues genuinely differ: television has
+    15 genres and 13 structure axes, film has 19 genres and 7. The dials and
+    genre chips are rebuilt from this when a tab is opened rather than assuming
+    one shape fits both.
+    """
+    if scope not in SCOPES:
+        raise HTTPException(status_code=400, detail=f"scope must be one of {SCOPES}")
+
+    target = space_for(scope)
+    allowed = target.allowed_rows(**filters(scope, include_anime))
+    counts = catalogue_counts()
     return {
-        "genres": space.block_labels["genre"],
-        "structure": space.block_labels["structure"],
-        "keyword_count": len(space.block_labels["keywords"]),
-        "catalogue_size": len(space.catalogue),
+        "scope": scope,
+        "genres": target.block_labels["genre"],
+        "structure": target.block_labels["structure"],
+        "keyword_count": len(target.block_labels["keywords"]),
+        # The anime tab spans both catalogues, so its size is the pair rather
+        # than whichever space happens to draw the dials.
+        "catalogue_size": counts["anime"] if scope == "anime" else target.count_allowed(allowed),
         "default_weights": DEFAULT_WEIGHTS,
+        # What each tab can offer, so the interface can label them without
+        # guessing or hard-coding numbers that will go stale.
+        "counts": counts,
+    }
+
+
+def catalogue_counts():
+    """How many titles sit behind each tab. None means the tab is unavailable."""
+    return {
+        "tv": len(space.catalogue),
+        "movie": len(movie_space.catalogue) if movie_space else None,
+        "anime": int(space.is_anime.sum())
+        + (int(movie_space.is_anime.sum()) if movie_space else 0),
     }
 
 
 @app.get("/api/search")
-def search(q: str = "", limit: int = SEARCH_LIMIT):
-    results = space.search(q, limit=limit)
-    return {"query": q, "results": results}
+def search(q: str = "", limit: int = SEARCH_LIMIT,
+           scope: str = "tv", include_anime: bool = True):
+    if scope not in SCOPES:
+        raise HTTPException(status_code=400, detail=f"scope must be one of {SCOPES}")
+
+    if scope == "anime" and movie_space is not None:
+        # Both halves get a fair share of the dropdown rather than films being
+        # pushed off the end by however many series happen to match first.
+        half = max(1, limit // 2)
+        series = space.search(q, limit=half, only_anime=True)
+        films = movie_space.search(q, limit=limit - len(series), only_anime=True)
+        return {"query": q, "scope": scope, "results": series + films}
+
+    results = space_for(scope).search(q, limit=limit, **filters(scope, include_anime))
+    return {"query": q, "scope": scope, "results": results}
 
 
 @app.get("/api/similar/{show_id}")
@@ -473,7 +589,12 @@ def similar(
     structure: float = DEFAULT_WEIGHTS["structure"],
     limit: int = Query(PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
     offset: int = Query(0, ge=0),
+    scope: str = "tv",
+    include_anime: bool = True,
 ):
+    if scope not in SCOPES:
+        raise HTTPException(status_code=400, detail=f"scope must be one of {SCOPES}")
+    space = space_for(scope, show_id)
     if show_id not in space.index_by_id:
         raise HTTPException(status_code=404, detail="Unknown show id")
 
@@ -483,18 +604,21 @@ def similar(
         weights={"genre": genre, "keywords": keywords, "structure": structure},
         limit=limit,
         offset=offset,
+        **filters(scope, include_anime),
     )
     elapsed = (time.perf_counter() - started) * 1000
 
+    allowed = space.allowed_rows(**filters(scope, include_anime))
     return {
         "query_show": space.catalogue[space.index_by_id[show_id]],
         "results": results,
         "offset": offset,
-        # Every show except the query itself is ranked, so this is how far the
-        # interface may page. It is deliberately the true number rather than a
-        # comfortable one: the scores are shown alongside, so a user paging into
-        # the tail can see for themselves that the matches have thinned out.
-        "total": len(space.catalogue) - 1,
+        "scope": scope,
+        # How far the interface may page, after the tab's filter has been
+        # applied. Deliberately the true number rather than a comfortable one:
+        # the scores are shown alongside, so a user paging into the tail can
+        # see for themselves that the matches have thinned out.
+        "total": space.count_allowed(allowed) - 1,
         # Surfaced in the interface so the efficiency claim is visible rather
         # than asserted.
         "query_ms": round(elapsed, 3),
@@ -510,13 +634,18 @@ def preference(query: PreferenceQuery):
         weights=query.weights.model_dump(),
         limit=query.limit,
         offset=query.offset,
+        **filters(query.scope, query.include_anime),
     )
     elapsed = (time.perf_counter() - started) * 1000
     return {
         "results": results,
         "offset": query.offset,
-        # No query show to exclude here, so the whole catalogue is rankable.
-        "total": len(space.catalogue),
+        "scope": query.scope,
+        # No query show to exclude here, so everything the filter allows is
+        # rankable.
+        "total": space_for(query.scope).count_allowed(
+            space_for(query.scope).allowed_rows(**filters(query.scope, query.include_anime))
+        ),
         "query_ms": round(elapsed, 3),
     }
 

@@ -919,3 +919,74 @@ so this is worth re-running at 150+ labels. If ridge shrinkage is what is
 drowning the signal, more labels should pull the interval clear. If it does not
 move, the axes belong in the interface and the explanations rather than in the
 distance metric — a legitimate finding, and a less convenient one.
+
+---
+
+# v0.15 — three catalogues: television, film and anime
+
+The interface now has three tabs, and two of them needed new data or new
+measurements rather than a filter.
+
+## Film is a separate feature space, not a flag
+
+`tmdb/fetch_movies.py` pulls the Netflix GB film catalogue: **5,462 films, zero
+failures**, 8.4 minutes. It borrows the show fetcher's rate limiter and retrying
+`get` rather than duplicating them, and normalises TMDB's film fields into the
+show shape (`title` to `name`, `release_dates` to `content_ratings`, the
+differently-nested `keywords.keywords` to `keywords.results`) so downstream code
+needs no second path.
+
+But the structure block could not be shared. **Seven of television's thirteen
+axes measure how a story spreads across a run of episodes** — episode count,
+season count, miniseries, per-episode rating variance, slow-burn slope, finale
+delta, standout-episode ratio. A film has one episode, so those are not zero for
+films, they are undefined, and writing them as zeros would tell the distance
+metric that every film is identical along seven axes.
+
+`app/build_movie_space.py` defines seven film axes instead:
+
+| Axis | Why |
+|---|---|
+| `runtime` | the only duration a film has |
+| `maturity` | same certificate scale as television |
+| `audience_rating` | same |
+| `audience_reach` | vote count. A blockbuster and a festival film are different propositions even on the same subject. Television has no equivalent because a series' vote count is confounded by how long it ran |
+| `release_recency` | separates a 1970s thriller from a 2023 one |
+| `part_of_series` | franchise membership — the closest a film gets to serialisation |
+| `ensemble_size` | cast size, standing in for `guest_star_mean` |
+
+## The taxonomy gap is television-specific, which sharpens it
+
+TMDB's **film** genre list has 19 entries and includes **Horror, Thriller,
+Romance, History and Fantasy** — every one of the headings its television list
+omits.
+
+So the argument in v0.1 gets stronger rather than weaker. It is not that TMDB
+lacks the vocabulary; the vocabulary exists and is used for film. Television
+simply does not get it, which makes "a recommender restricted to catalogue
+genres cannot accept 'a romance'" a fact about the television side specifically,
+and one TMDB's own film taxonomy demonstrates is fixable.
+
+## Anime is a mask, not a catalogue
+
+TMDB has no anime category, because anime is a production tradition rather than
+a genre. `build_space.is_anime` builds the test from what TMDB does record, and
+needs both halves:
+
+- **Japanese origin AND the Animation genre** — 187 shows
+- **the `anime` keyword** — 202 shows
+
+Neither alone is enough: origin-plus-genre misses 18 that the keyword finds, the
+keyword misses 3 that origin-plus-genre finds. Together, **205 series and 107
+films, 312 titles**. The deliberate exclusion is Japanese live action — Alice in
+Borderland is Japanese and is not anime, and origin alone would sweep it in.
+
+Because anime is a flag rather than a catalogue, the anime tab is the same
+filter seen from the other side: `only_anime=True` on the tab, `include_anime`
+on the other two. One mask, three behaviours.
+
+**One honest limitation.** Anime spans both catalogues, but the two cannot share
+a feature space, so an anime series recommends anime series and an anime film
+recommends anime films. Ranking across them would need a structure block that
+describes both a 12-episode series and a 2-hour film, and inventing one would
+mean discarding most of what each block measures.
