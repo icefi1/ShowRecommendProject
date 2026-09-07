@@ -42,6 +42,26 @@ app = FastAPI(title="Show Recommender", version="0.1.0")
 space = FeatureSpace()
 
 
+def load_movie_space():
+    """
+    The film catalogue, if it has been built.
+
+    Optional on purpose: the television side has to keep working on a checkout
+    where nobody has run the film pipeline, and the interface disables that tab
+    rather than failing.
+    """
+    if not (HERE / "feature_space_movie.npz").exists():
+        return None
+    try:
+        return FeatureSpace("feature_space_movie")
+    except (OSError, ValueError, KeyError) as error:
+        print(f"Film catalogue present but unreadable, skipping it: {error}")
+        return None
+
+
+movie_space = load_movie_space()
+
+
 # How many results one request returns, and the ceiling on that.
 #
 # It was 12, which is roughly one screen and no more: a user who did not see
@@ -54,6 +74,53 @@ MAX_PAGE_SIZE = 60
 # The title dropdown is a separate list with its own limit. It scrolls inside a
 # fixed-height box, so a larger number costs nothing on screen.
 SEARCH_LIMIT = 40
+
+
+# The three tabs. "anime" is not a third catalogue - it is the television
+# catalogue filtered to the anime flag - so it maps onto the same feature space
+# with a mask. Films get their own space because their structure axes are
+# genuinely different (no episodes, no seasons, no per-episode pacing).
+SCOPES = ("tv", "movie", "anime")
+
+
+def space_for(scope, show_id=None):
+    """
+    Which feature space a tab queries.
+
+    The anime tab is the awkward one: anime exists in both catalogues - 205
+    series and 107 films - and they cannot share a feature space because their
+    structure blocks are different sets of axes. So when the tab knows which
+    title it is working from, the space is whichever catalogue holds that id;
+    when it does not (drawing dials, or a search that spans both) it falls back
+    to television.
+
+    A consequence worth stating plainly: an anime series recommends anime
+    series and an anime film recommends anime films. Ranking across the two
+    would need a shared structure block, and inventing one that describes both
+    a 12-episode series and a 2-hour film would mean throwing away most of what
+    each block measures.
+    """
+    if scope == "movie":
+        if movie_space is None:
+            raise HTTPException(
+                status_code=503,
+                detail="The film catalogue has not been built yet. Run "
+                       "tmdb/fetch_movies.py then app/build_movie_space.py.",
+            )
+        return movie_space
+
+    if scope == "anime" and show_id is not None:
+        if show_id in space.index_by_id:
+            return space
+        if movie_space is not None and show_id in movie_space.index_by_id:
+            return movie_space
+
+    return space
+
+
+def filters(scope, include_anime):
+    """Turn the tab and its toggle into the engine's two filter arguments."""
+    return {"only_anime": scope == "anime", "include_anime": bool(include_anime)}
 
 
 class Weights(BaseModel):
@@ -71,22 +138,29 @@ class PreferenceQuery(BaseModel):
     genres: list[str] = Field(default_factory=list)
     weights: Weights = Field(default_factory=Weights)
     limit: int = Field(PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE)
+    scope: str = "tv"
+    include_anime: bool = True
     # Where in the ranking this page starts. Bounded above by the catalogue, so
     # a hand-written request cannot ask for an arbitrarily deep page.
     offset: int = Field(0, ge=0, le=10_000)
 
 
-def load_predicted_axes():
+def load_predicted_axes(filename="predictions.csv"):
     """
-    Per-show predicted axis scores, if the model has been trained.
+    Per-title predicted axis scores, if the model has been run over them.
 
     These are the 37 schema axes the trained model produces. They are shown in
-    the detail panel but are deliberately NOT used for ranking yet - the model
-    is trained on 50 labels and its magnitudes are compressed, so it would make
-    recommendations worse. Displaying them keeps the two separable: you can see
-    what the model thinks without it silently steering results.
+    the detail panel but are deliberately NOT used for ranking - measured in
+    S9.5, adding them does not clearly help at 78 labels. Displaying them keeps
+    the two separable: you can see what the model thinks without it silently
+    steering results.
+
+    Two files, one per catalogue. The film scores come from the same model -
+    it reads text, and nothing in it is specific to television - but every
+    labelled example it learned from was a series, so those scores are transfer
+    and are not measured. See training/score_movies.py.
     """
-    path = ROOT / "training" / "predictions.csv"
+    path = ROOT / "training" / filename
     if not path.exists():
         return {}, []
 
@@ -105,9 +179,46 @@ def load_predicted_axes():
 
 
 PREDICTED, PREDICTED_AXES = load_predicted_axes()
+PREDICTED_MOVIE, _ = load_predicted_axes("predictions_movie.csv")
 
 
-def apply_facts(show_id, predicted):
+def predictions_for(scope, show_id):
+    """The right catalogue's predictions for one title."""
+    if scope == "movie" or (movie_space is not None
+                            and show_id not in space.index_by_id
+                            and show_id in movie_space.index_by_id):
+        return PREDICTED_MOVIE
+    return PREDICTED
+
+
+# TMDB names film genres differently from television ones, so the fact axes
+# need their own lookup on the film side. Two differences matter:
+#
+#   * Television conflates action and adventure into "Action & Adventure";
+#     film lists "Action" and "Adventure" separately, and `action` maps to the
+#     first of those.
+#   * Film has no Reality genre, so that axis stays a prediction there.
+#
+# The film list also has Horror, Thriller, Romance, History, Science Fiction and
+# Fantasy - every heading television lacks, and the reason those axes are
+# judgements at all. They are deliberately NOT promoted to facts here. The
+# fact/judgement split decides what the crowd may vote on, and making `horror` a
+# fact for films but a judgement for series would mean the same axis takes votes
+# in one tab and refuses them in the next. Doing it properly needs per-catalogue
+# vote rules, which is a schema change rather than a lookup table, and is
+# recorded as an open decision in docs/HANDOFF.md.
+TMDB_GENRE_SOURCE_FILM = {
+    "comedy": "Comedy",
+    "drama": "Drama",
+    "crime": "Crime",
+    "mystery": "Mystery",
+    "action": "Action",
+    "documentary": "Documentary",
+    "animation": "Animation",
+}
+
+
+def apply_facts(show_id, predicted, scope="tv"):
     """
     Let the catalogue overrule the model on axes it actually settles.
 
@@ -127,14 +238,16 @@ def apply_facts(show_id, predicted):
     Axes TMDB has no genre for - horror, thriller, romance, historical - are
     untouched. They are judgements, and they are the ones worth voting on.
     """
-    index = space.index_by_id.get(show_id)
+    target = space_for(scope, show_id) if scope != "tv" else space
+    index = target.index_by_id.get(show_id)
     if index is None or not predicted:
         return predicted
 
-    tmdb_genres = set(space.catalogue[index].get("genres", []))
+    tmdb_genres = set(target.catalogue[index].get("genres", []))
     out = dict(predicted)
 
-    for axis, genre in TMDB_GENRE_SOURCE.items():
+    sourced = TMDB_GENRE_SOURCE_FILM if target.kind == "movie" else TMDB_GENRE_SOURCE
+    for axis, genre in sourced.items():
         if axis not in out:
             continue
         tagged = genre in tmdb_genres
@@ -298,6 +411,9 @@ class Vote(BaseModel):
     direction: str = Field(pattern="^(up|down|neutral)$")
     # What the voter had on screen. "Higher" is meaningless without it.
     score_shown: float = Field(ge=0.0, le=1.0)
+    # Which catalogue the title came from. Needed because TMDB numbers films and
+    # series separately, so the prior to fuse against depends on it.
+    scope: str = "tv"
 
 
 @app.post("/api/vote")
@@ -324,7 +440,7 @@ def vote(v: Vote, request: Request):
 
     voter = f"user:{user['id']}"
     crowd.cast(v.show_id, v.axis, v.direction, v.score_shown, voter)
-    priors = apply_facts(v.show_id, PREDICTED.get(v.show_id, {}))
+    priors = apply_facts(v.show_id, predictions_for(v.scope, v.show_id).get(v.show_id, {}), v.scope)
 
     state = crowd.state_for_show(v.show_id, priors, voter)[v.axis]
     # Same shape as the detail endpoint. The client re-renders the row straight
@@ -345,7 +461,7 @@ def disagreements(min_votes: int = 3, limit: int = 40):
     """
     rows = []
     for row in crowd.disagreements(limit=limit, min_votes=min_votes):
-        priors = apply_facts(row["show_id"], PREDICTED.get(row["show_id"], {}))
+        priors = apply_facts(row["show_id"], PREDICTED.get(row["show_id"], {}), "tv")
         prior = priors.get(row["axis"])
         if prior is None:
             continue
@@ -364,8 +480,14 @@ def disagreements(min_votes: int = 3, limit: int = 40):
 
 
 @app.get("/api/show/{show_id}")
-def show_detail(show_id: int, request: Request):
-    """Everything the detail panel needs for one show."""
+def show_detail(show_id: int, request: Request, scope: str = "tv"):
+    """Everything the detail panel needs for one title."""
+    if scope not in SCOPES:
+        raise HTTPException(status_code=400, detail=f"scope must be one of {SCOPES}")
+
+    # Ids are only unique within a catalogue - TMDB numbers films and shows
+    # separately - so the panel has to be told which one it is looking at.
+    space = space_for(scope, show_id)
     index = space.index_by_id.get(show_id)
     if index is None:
         raise HTTPException(status_code=404, detail="Unknown show id")
@@ -379,14 +501,29 @@ def show_detail(show_id: int, request: Request):
         for column, name in enumerate(structure_names)
     }
 
-    # The show's most distinctive keywords - highest IDF weight, so the ones
-    # that actually say something rather than "drama".
+    # Keywords in two groups, because they do two different jobs.
+    #
+    # The first group is every keyword that survived the build's minimum of
+    # three shows, ordered by IDF weight so the most distinctive come first.
+    # These are the ones the similarity engine actually ranks on, and the ones
+    # explanations quote.
+    #
+    # The second is everything else TMDB tagged the show with. A keyword on one
+    # or two shows cannot create similarity with anything, so it earns no
+    # dimension - but it is often the most recognisable thing about the show.
+    # Breaking Bad's "crystal meth", "meth lab" and "dea agent" all land here,
+    # and a panel that hid them would look broken to anyone who has seen it.
     keyword_row = space.blocks["keywords"][index]
     vocabulary = space.block_labels["keywords"]
     ranked = sorted(range(len(vocabulary)), key=lambda i: -keyword_row[i])
-    show["top_keywords"] = [vocabulary[i] for i in ranked[:12] if keyword_row[i] > 0]
+    used = [vocabulary[i] for i in ranked if keyword_row[i] > 0]
 
-    predicted = apply_facts(show_id, PREDICTED.get(show_id, {}))
+    show["keywords_ranking"] = used
+    show["keywords_other"] = [k for k in show.get("keywords_all", []) if k not in set(used)]
+    # Kept so an older cached page still renders something sensible.
+    show["top_keywords"] = used[:12]
+
+    predicted = apply_facts(show_id, predictions_for(scope, show_id).get(show_id, {}), scope)
     show["has_model"] = bool(predicted)
 
     # Every axis carries its model prior, its crowd-corrected score, the vote
@@ -433,21 +570,62 @@ def show_detail(show_id: int, request: Request):
 
 
 @app.get("/api/axes")
-def axes():
-    """Everything the interface needs to draw its controls."""
+def axes(scope: str = "tv", include_anime: bool = True):
+    """
+    Everything the interface needs to draw its controls, for one catalogue.
+
+    Scope-dependent because the two catalogues genuinely differ: television has
+    15 genres and 13 structure axes, film has 19 genres and 7. The dials and
+    genre chips are rebuilt from this when a tab is opened rather than assuming
+    one shape fits both.
+    """
+    if scope not in SCOPES:
+        raise HTTPException(status_code=400, detail=f"scope must be one of {SCOPES}")
+
+    target = space_for(scope)
+    allowed = target.allowed_rows(**filters(scope, include_anime))
+    counts = catalogue_counts()
     return {
-        "genres": space.block_labels["genre"],
-        "structure": space.block_labels["structure"],
-        "keyword_count": len(space.block_labels["keywords"]),
-        "catalogue_size": len(space.catalogue),
+        "scope": scope,
+        "genres": target.block_labels["genre"],
+        "structure": target.block_labels["structure"],
+        "keyword_count": len(target.block_labels["keywords"]),
+        # The anime tab spans both catalogues, so its size is the pair rather
+        # than whichever space happens to draw the dials.
+        "catalogue_size": counts["anime"] if scope == "anime" else target.count_allowed(allowed),
         "default_weights": DEFAULT_WEIGHTS,
+        # What each tab can offer, so the interface can label them without
+        # guessing or hard-coding numbers that will go stale.
+        "counts": counts,
+    }
+
+
+def catalogue_counts():
+    """How many titles sit behind each tab. None means the tab is unavailable."""
+    return {
+        "tv": len(space.catalogue),
+        "movie": len(movie_space.catalogue) if movie_space else None,
+        "anime": int(space.is_anime.sum())
+        + (int(movie_space.is_anime.sum()) if movie_space else 0),
     }
 
 
 @app.get("/api/search")
-def search(q: str = "", limit: int = SEARCH_LIMIT):
-    results = space.search(q, limit=limit)
-    return {"query": q, "results": results}
+def search(q: str = "", limit: int = SEARCH_LIMIT,
+           scope: str = "tv", include_anime: bool = True):
+    if scope not in SCOPES:
+        raise HTTPException(status_code=400, detail=f"scope must be one of {SCOPES}")
+
+    if scope == "anime" and movie_space is not None:
+        # Both halves get a fair share of the dropdown rather than films being
+        # pushed off the end by however many series happen to match first.
+        half = max(1, limit // 2)
+        series = space.search(q, limit=half, only_anime=True)
+        films = movie_space.search(q, limit=limit - len(series), only_anime=True)
+        return {"query": q, "scope": scope, "results": series + films}
+
+    results = space_for(scope).search(q, limit=limit, **filters(scope, include_anime))
+    return {"query": q, "scope": scope, "results": results}
 
 
 @app.get("/api/similar/{show_id}")
@@ -458,7 +636,12 @@ def similar(
     structure: float = DEFAULT_WEIGHTS["structure"],
     limit: int = Query(PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
     offset: int = Query(0, ge=0),
+    scope: str = "tv",
+    include_anime: bool = True,
 ):
+    if scope not in SCOPES:
+        raise HTTPException(status_code=400, detail=f"scope must be one of {SCOPES}")
+    space = space_for(scope, show_id)
     if show_id not in space.index_by_id:
         raise HTTPException(status_code=404, detail="Unknown show id")
 
@@ -468,18 +651,21 @@ def similar(
         weights={"genre": genre, "keywords": keywords, "structure": structure},
         limit=limit,
         offset=offset,
+        **filters(scope, include_anime),
     )
     elapsed = (time.perf_counter() - started) * 1000
 
+    allowed = space.allowed_rows(**filters(scope, include_anime))
     return {
         "query_show": space.catalogue[space.index_by_id[show_id]],
         "results": results,
         "offset": offset,
-        # Every show except the query itself is ranked, so this is how far the
-        # interface may page. It is deliberately the true number rather than a
-        # comfortable one: the scores are shown alongside, so a user paging into
-        # the tail can see for themselves that the matches have thinned out.
-        "total": len(space.catalogue) - 1,
+        "scope": scope,
+        # How far the interface may page, after the tab's filter has been
+        # applied. Deliberately the true number rather than a comfortable one:
+        # the scores are shown alongside, so a user paging into the tail can
+        # see for themselves that the matches have thinned out.
+        "total": space.count_allowed(allowed) - 1,
         # Surfaced in the interface so the efficiency claim is visible rather
         # than asserted.
         "query_ms": round(elapsed, 3),
@@ -495,13 +681,18 @@ def preference(query: PreferenceQuery):
         weights=query.weights.model_dump(),
         limit=query.limit,
         offset=query.offset,
+        **filters(query.scope, query.include_anime),
     )
     elapsed = (time.perf_counter() - started) * 1000
     return {
         "results": results,
         "offset": query.offset,
-        # No query show to exclude here, so the whole catalogue is rankable.
-        "total": len(space.catalogue),
+        "scope": query.scope,
+        # No query show to exclude here, so everything the filter allows is
+        # rankable.
+        "total": space_for(query.scope).count_allowed(
+            space_for(query.scope).allowed_rows(**filters(query.scope, query.include_anime))
+        ),
         "query_ms": round(elapsed, 3),
     }
 

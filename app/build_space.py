@@ -59,6 +59,36 @@ US_CERTIFICATE_SCALE = {
 }
 
 
+def is_anime(record):
+    """
+    Is this anime?
+
+    TMDB has no anime category. It is a production tradition, not a genre, so
+    there is no field to read and the test has to be built from what TMDB does
+    record. Two signals, either of which is enough:
+
+      1. Japanese origin AND the Animation genre. Catches the bulk of it and is
+         hard to argue with - a Japanese animated series is anime by any
+         definition anyone uses.
+      2. The `anime` keyword. Catches co-productions and Japanese-language
+         titles TMDB files under another country, and catches the handful that
+         are animated abroad in the style and marketed as anime.
+
+    Neither alone is sufficient. Origin plus genre misses 18 titles the keyword
+    finds; the keyword alone misses 3 that origin plus genre finds. Together
+    they identify 205 of 3,542 shows.
+
+    The deliberate exclusion is "Japanese live action" - Alice in Borderland is
+    Japanese and not anime, and origin alone would wrongly sweep it in.
+    """
+    countries = record.get("origin_country") or []
+    genres = {g["name"] for g in record.get("genres", [])}
+    keywords = {k["name"].lower() for k in record.get("keywords", {}).get("results", [])}
+
+    japanese_animation = "JP" in countries and "Animation" in genres
+    return bool(japanese_animation or "anime" in keywords)
+
+
 def percentile_rank(values):
     """
     Map values onto 0-1 by rank rather than magnitude.
@@ -249,6 +279,33 @@ def build():
             # rating - see similarity.py.
             "certificate": certificate_label(s)[0],
             "maturity": round(certificate(s), 3),
+            # Which catalogue this row belongs to, and whether it is anime.
+            # Anime is a view rather than a third kind: an anime series is a
+            # television series, so it carries kind "tv" and is_anime true, and
+            # the interface decides whether to include it.
+            "kind": "tv",
+            # False for anime added by tmdb/fetch_anime.py, which deliberately
+            # reaches outside the Netflix GB listing. Kept so the report can
+            # still say exactly what the Netflix catalogue holds, and so the
+            # interface can warn that a recommendation is not on Netflix.
+            "on_netflix_gb": s.get("on_netflix_gb", True),
+            "is_anime": is_anime(s),
+            # Every keyword TMDB has for this show, for display only.
+            #
+            # Deliberately not the same set as the keyword BLOCK above. That
+            # block drops any keyword appearing on fewer than three shows,
+            # because a keyword on one show cannot create similarity with
+            # anything and only adds a noisy dimension. But those same rare
+            # keywords are often the most recognisable ones a person would look
+            # for - Breaking Bad loses "crystal meth", "meth lab" and "dea
+            # agent" to that filter - so showing only the block's vocabulary
+            # would look broken to anyone who knows the show.
+            #
+            # Two different jobs: what the engine ranks on, and what a reader is
+            # told the show is about.
+            "keywords_all": sorted(
+                {k["name"] for k in s.get("keywords", {}).get("results", [])}
+            ),
             # TMDB's own similarity, kept as the ground-truth proxy for S9.2.
             # Stored as bare id lists by fetch_shows.py - the full show records
             # TMDB returns here were 20% of the raw file and only the ids are

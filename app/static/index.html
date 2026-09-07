@@ -15,6 +15,16 @@
     --accent: #7aa2f7;
     --good: #9ece6a;
   }
+
+  /* One accent per catalogue, swapped by a data-scope attribute on <body>.
+     Everything accented - tabs, sliders, focus rings, the chosen-show border,
+     hover states - reads from --accent, so the whole interface changes colour
+     from these three lines and nothing else needs to know which tab is open.
+     The point is that you can tell at a glance which catalogue you are in
+     without reading the tab. */
+  body[data-scope="tv"]    { --accent: #7aa2f7; }  /* periwinkle, as it was */
+  body[data-scope="movie"] { --accent: #e6a765; }  /* warm amber, cinema  */
+  body[data-scope="anime"] { --accent: #b98cf5; }  /* purple              */
   * { box-sizing: border-box; }
   body {
     margin: 0;
@@ -82,8 +92,17 @@
   .chosen {
     margin-top: 10px; padding: 10px 12px; background: var(--panel-2);
     border: 1px solid var(--accent); border-radius: 6px; font-size: 14px;
+    display: grid; grid-template-columns: 46px 1fr; gap: 11px; align-items: center;
+    cursor: pointer; transition: background .12s;
+  }
+  .chosen:hover { background: #262a3b; }
+  .chosen:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .chosen img, .chosen .noposter {
+    width: 46px; height: 69px; object-fit: cover; border-radius: 4px;
+    background: var(--panel); display: block;
   }
   .chosen small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .chosen .hint { color: var(--accent); font-size: 11px; }
 
   .slider-row { margin: 12px 0; }
   .slider-row header { display: flex; justify-content: space-between; padding: 0;
@@ -117,6 +136,13 @@
 
   .card { cursor: pointer; transition: border-color .12s, background .12s; }
   .card:hover { border-color: var(--accent); background: var(--panel-2); }
+
+  .chip.faint { opacity: .55; }
+
+  /* Anime fetched from outside the Netflix GB listing. Recommending something
+     nobody can watch is a poor recommendation, so where a title came from is
+     said on the card rather than left to be discovered. */
+  .offnet { color: var(--warn, #e6a765); }
 
   .empty { color: var(--muted); padding: 40px 0; text-align: center; }
 
@@ -206,9 +232,50 @@
   }
   .btn.ghost { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); font-weight: 400; }
   footer { padding: 14px 28px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+
+  /* --- catalogue tabs ----------------------------------------------------- */
+  .scopes {
+    display: flex; gap: 6px; padding: 0 28px; background: var(--panel);
+    border-bottom: 1px solid var(--line);
+  }
+  .scope {
+    padding: 11px 20px; font-size: 14px; cursor: pointer; font-family: inherit;
+    background: none; border: 0; border-bottom: 2px solid transparent;
+    color: var(--muted); margin-bottom: -1px;
+  }
+  .scope:hover { color: var(--text); }
+  .scope[aria-selected="true"] {
+    color: var(--accent); border-bottom-color: var(--accent); font-weight: 600;
+  }
+  .scope[disabled] { opacity: .4; cursor: not-allowed; }
+  .scope .count { color: var(--muted); font-size: 11px; font-weight: 400; margin-left: 5px; }
+
+  /* --- the include-anime switch ------------------------------------------- */
+  .switch {
+    display: inline-flex; align-items: center; gap: 9px; cursor: pointer;
+    font-size: 13px; color: var(--muted); user-select: none; margin: 14px 0 2px;
+  }
+  .switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+  .switch .track {
+    width: 38px; height: 22px; border-radius: 11px; flex-shrink: 0;
+    background: var(--panel-2); border: 1px solid var(--line); position: relative;
+    transition: background .16s, border-color .16s;
+  }
+  .switch .track::after {
+    content: ""; position: absolute; top: 2px; left: 2px;
+    width: 16px; height: 16px; border-radius: 50%; background: var(--muted);
+    transition: transform .16s, background .16s;
+  }
+  .switch input:checked + .track { background: var(--accent); border-color: var(--accent); }
+  .switch input:checked + .track::after { transform: translateX(16px); background: #12131a; }
+  .switch input:focus-visible + .track { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .switch.on { color: var(--text); }
+  /* display:inline-flex above beats the browser's own [hidden] rule, so hiding
+     the switch on the anime tab needs saying explicitly. */
+  .switch[hidden] { display: none; }
 </style>
 </head>
-<body>
+<body data-scope="tv">
 
 <header>
   <div>
@@ -218,6 +285,12 @@
   <nav id="account"></nav>
 </header>
 
+<nav class="scopes" id="scopes" role="tablist" aria-label="Catalogue">
+  <button class="scope" role="tab" data-scope="tv" aria-selected="true">TV Shows</button>
+  <button class="scope" role="tab" data-scope="movie" aria-selected="false">Movies</button>
+  <button class="scope" role="tab" data-scope="anime" aria-selected="false">Anime</button>
+</nav>
+
 <div class="layout">
   <aside>
     <div class="tabs" role="tablist">
@@ -226,7 +299,7 @@
     </div>
 
     <section id="panel-show">
-      <label class="field" for="q">Find a show</label>
+      <label class="field" for="q"><span id="find-label">Find a show</span></label>
       <input type="text" id="q" placeholder="Breaking Bad, Peaky Blinders&hellip;" autocomplete="off">
       <div class="results-list" id="hits"></div>
       <div id="chosen"></div>
@@ -238,6 +311,12 @@
       <label class="field">Shape of the thing</label>
       <div id="structure-dials"></div>
     </section>
+
+    <label class="switch on" id="anime-switch">
+      <input type="checkbox" id="anime-toggle" checked>
+      <span class="track"></span>
+      <span id="anime-label">Include anime</span>
+    </label>
 
     <label class="field">Block weights</label>
     <div id="weights"></div>
@@ -258,6 +337,11 @@
 const $ = (s) => document.querySelector(s);
 const state = {
   mode: "show", show: null, weights: {}, structure: {}, genres: new Set(), axes: null,
+  // Which catalogue is open, and whether anime is mixed into it. Anime is a
+  // filter on the television and film catalogues rather than a third one, so
+  // the anime tab is just scope "anime" and the toggle is the same mechanism
+  // seen from the other side.
+  scope: "tv", includeAnime: true,
   // Paging: how many results are on screen, how many the query can return, and
   // a guard so the scroll sentinel cannot fire a second request while the first
   // one is still in flight.
@@ -283,16 +367,126 @@ const DIAL_LABELS = {
   slow_burn_slope:["Strong from the start", "Slow burn"],
   guest_star_mean:["Tight core cast", "Large ensemble"],
   entity_density: ["Simple cast", "Many names to track"],
+  // Film-only axes. The film structure block is a different set from
+  // television's - no episodes means no episode count, no seasons, no pacing
+  // across a run - so these appear only when the Movies tab is open. drawDials
+  // reads whatever axes the server sends for the current catalogue and shows
+  // the ones it has wording for, so the two lists can live side by side here.
+  runtime:         ["Short film", "Long film"],
+  audience_reach:  ["Obscure", "Widely seen"],
+  release_recency: ["Older", "Recent"],
+  part_of_series:  ["Standalone", "Part of a franchise"],
+  ensemble_size:   ["Small cast", "Large ensemble"],
 };
 
-async function boot() {
-  state.axes = await (await fetch("/api/axes")).json();
-  state.weights = { ...state.axes.default_weights };
+// What each tab is called, and what to put in the search box.
+const SCOPES = {
+  tv:    { tab: "TV Shows", noun: "show",  find: "Find a show",   hint: "Breaking Bad, Peaky Blinders…" },
+  movie: { tab: "Movies",   noun: "film",  find: "Find a film",   hint: "The Irishman, Glass Onion…" },
+  anime: { tab: "Anime",    noun: "anime", find: "Find an anime", hint: "Jujutsu Kaisen, Naruto…" },
+};
+
+// --- catalogue tabs ---------------------------------------------------------
+
+// "3,542 shows" on the television tab, "5,462 films" on the film tab. The
+// interface should not call a film a show just because the code path is shared.
+function catalogueNoun() {
+  return state.scope === "movie" ? "films" : state.scope === "anime" ? "titles" : "shows";
+}
+
+function scopeParams() {
+  return `scope=${state.scope}&include_anime=${state.includeAnime}`;
+}
+
+// Everything on screen that depends on which catalogue is open. Called both
+// when a tab is clicked and on first load, so arriving on the Anime tab from
+// the landing page looks the same as switching to it.
+function syncScopeUI() {
+  const scope = state.scope;
+  document.body.dataset.scope = scope;
+  $("#scopes").querySelectorAll(".scope").forEach((b) =>
+    b.setAttribute("aria-selected", String(b.dataset.scope === scope)));
+
+  const words = SCOPES[scope];
+  $("#find-label").textContent = words.find;
+  $("#q").placeholder = words.hint;
+  // On the anime tab the toggle would be asking whether to include the only
+  // thing there is, so it goes away rather than sitting there doing nothing.
+  $("#anime-switch").hidden = scope === "anime";
+}
+
+async function switchScope(scope) {
+  if (scope === state.scope) return;
+  state.scope = scope;
+  // A show id means nothing in the film catalogue and vice versa, so the
+  // chosen show and its results are dropped rather than carried across.
+  state.show = null;
+  state.genres.clear();
+  $("#chosen").innerHTML = "";
+  $("#q").value = "";
+  $("#hits").innerHTML = "";
+
+  syncScopeUI();
+
+  // Genres and structure axes differ between the catalogues, so the dials have
+  // to be rebuilt rather than reused.
+  await boot({ keepWeights: true });
+  const noun = scope === "anime" ? "an anime" : `a ${SCOPES[scope].noun}`;
+  prompt(`Search for ${noun} to see what it sits near.`);
+}
+
+$("#scopes").onclick = (e) => {
+  const button = e.target.closest("[data-scope]");
+  if (button && !button.disabled) switchScope(button.dataset.scope);
+};
+
+// Put the size of each catalogue on its tab, and grey out any that has not
+// been built on this machine rather than letting it fail when clicked.
+function drawScopeCounts() {
+  const counts = (state.axes && state.axes.counts) || {};
+  $("#scopes").querySelectorAll(".scope").forEach((button) => {
+    const total = counts[button.dataset.scope];
+    // From the table rather than from the button's own text, which by the
+    // second call already has a count stuck on the end of it.
+    const label = SCOPES[button.dataset.scope].tab;
+    button.disabled = total === null || total === undefined;
+    button.innerHTML = button.disabled
+      ? `${label} <span class="count">not built</span>`
+      : `${label} <span class="count">${total.toLocaleString()}</span>`;
+    if (button.disabled) {
+      button.title = "Run tmdb/fetch_movies.py then app/build_movie_space.py to enable this.";
+    }
+  });
+}
+
+$("#anime-toggle").onchange = (e) => {
+  state.includeAnime = e.target.checked;
+  $("#anime-switch").classList.toggle("on", state.includeAnime);
+  $("#anime-label").textContent = state.includeAnime ? "Include anime" : "Anime hidden";
+  run();
+};
+
+// The landing page stores which catalogue card was clicked, so someone who
+// signed up from the Anime card lands on the Anime tab.
+try {
+  const wanted = localStorage.getItem("scope");
+  if (wanted && SCOPES[wanted]) {
+    state.scope = wanted;
+    document.body.dataset.scope = wanted;
+    localStorage.removeItem("scope");
+  }
+} catch (e) { /* private mode, stay on television */ }
+
+async function boot(options = {}) {
+  state.axes = await (await fetch(`/api/axes?${scopeParams()}`)).json();
+  if (!options.keepWeights) state.weights = { ...state.axes.default_weights };
   drawWeights();
   drawGenres();
   drawDials();
+  drawScopeCounts();
+  syncScopeUI();
   $("#meta").textContent =
-    `${state.axes.catalogue_size} shows · ${state.axes.genres.length} genres · `
+    `${state.axes.catalogue_size} ${catalogueNoun()} · ${state.axes.genres.length} genres · `
     + `${state.axes.keyword_count} keyword dimensions · ${state.axes.structure.length} structure axes`;
 }
 
@@ -351,11 +545,22 @@ $("#q").oninput = (e) => {
   // Debounced so a fast typist does not fire a request per keystroke.
   searchTimer = setTimeout(async () => {
     if (!term.trim()) { $("#hits").innerHTML = ""; return; }
-    const data = await (await fetch(`/api/search?q=${encodeURIComponent(term)}`)).json();
+    const data = await (await fetch(
+      `/api/search?q=${encodeURIComponent(term)}&${scopeParams()}`)).json();
     $("#hits").innerHTML = data.results.map((s) =>
       `<div class="hit" data-id="${s.id}"><span>${s.name}</span><span>${s.year}</span></div>`).join("")
       || `<div class="hit"><span style="color:var(--muted)">No match</span></div>`;
   }, 140);
+};
+
+$("#chosen").onclick = (e) => {
+  const el = e.target.closest("[data-show]");
+  if (el) openDetail(parseInt(el.dataset.show, 10));
+};
+$("#chosen").onkeydown = (e) => {
+  if (e.key !== "Enter" && e.key !== " ") return;
+  const el = e.target.closest("[data-show]");
+  if (el) { e.preventDefault(); openDetail(parseInt(el.dataset.show, 10)); }
 };
 
 $("#hits").onclick = (e) => {
@@ -379,7 +584,7 @@ function prompt(message) {
   $("#results").innerHTML = `<div class="empty">${message}</div>`;
   clearPaging();
   $("#meta").innerHTML =
-    `${state.axes.catalogue_size} shows · ${state.axes.keyword_count} keyword dimensions `
+    `${state.axes.catalogue_size} ${catalogueNoun()} · ${state.axes.keyword_count} keyword dimensions `
     + `· ${state.axes.structure.length} structure axes`;
 }
 
@@ -410,7 +615,7 @@ async function run(append = false) {
       if (!state.show) return prompt("Search for a show to see what it sits near.");
       const w = state.weights;
       const url = `/api/similar/${state.show}?genre=${w.genre}&keywords=${w.keywords}`
-        + `&structure=${w.structure}&limit=${PAGE_SIZE}&offset=${offset}`;
+        + `&structure=${w.structure}&limit=${PAGE_SIZE}&offset=${offset}&${scopeParams()}`;
       data = await (await fetch(url)).json();
       showQuery = true;
     } else {
@@ -432,6 +637,8 @@ async function run(append = false) {
           weights: state.weights,
           limit: PAGE_SIZE,
           offset,
+          scope: state.scope,
+          include_anime: state.includeAnime,
         }),
       })).json();
       showQuery = false;
@@ -450,8 +657,22 @@ async function run(append = false) {
 function render(data, showQuery, append = false) {
   if (showQuery && data.query_show) {
     const q = data.query_show;
-    $("#chosen").innerHTML =
-      `<div class="chosen">${q.name}<small>${q.year} · ${q.genres.join(", ")} · ${q.episodes} episodes</small></div>`;
+    // The show you searched with is a show like any other, so it opens the same
+    // detail panel the results do. It was the one card on screen that did
+    // nothing when clicked.
+    const thumb = q.poster
+      ? `<img src="https://image.tmdb.org/t/p/w92${q.poster}" alt="">`
+      : `<div class="noposter"></div>`;
+    $("#chosen").innerHTML = `
+      <div class="chosen" data-show="${q.id}" role="button" tabindex="0"
+           title="See everything about ${esc(q.name)}">
+        ${thumb}
+        <div>
+          <b>${esc(q.name)}</b>
+          <small>${q.year} · ${q.genres.join(", ")} · ${lengthOf(q)}</small>
+          <small class="hint">Click for details</small>
+        </div>
+      </div>`;
   }
 
   if (!append && !data.results.length) {
@@ -477,7 +698,7 @@ function render(data, showQuery, append = false) {
 
   $("#meta").innerHTML =
     `showing ${state.shown} of ${state.total} · <b>${data.query_ms} ms</b> · `
-    + `${state.axes.catalogue_size} shows · ${state.axes.keyword_count} keyword dimensions`;
+    + `${state.axes.catalogue_size} ${catalogueNoun()} · ${state.axes.keyword_count} keyword dimensions`;
   drawPaging();
 }
 
@@ -504,6 +725,11 @@ new IntersectionObserver((entries) => {
 // Friendlier wording for the measured structure axes, which are stored as
 // percentile ranks across the catalogue rather than raw values.
 const STRUCTURE_LABELS = {
+  // Film axes first - a different block from television's, so both sets live
+  // here and each catalogue shows the ones it has.
+  runtime: "Runtime", audience_reach: "How widely seen",
+  release_recency: "How recent", part_of_series: "Part of a franchise",
+  ensemble_size: "Cast size",
   episode_count: "Episode count", season_count: "Seasons",
   episode_length: "Episode length", maturity: "Maturity",
   audience_rating: "Audience rating", is_miniseries: "Miniseries",
@@ -567,7 +793,9 @@ function bar(label, value, measured) {
 
 async function openDetail(id) {
   currentShow = id;
-  const s = await (await fetch(`/api/show/${id}`)).json();
+  // Scope matters here: TMDB numbers films and shows separately, so id 1396 is
+  // Breaking Bad in one catalogue and something else entirely in the other.
+  const s = await (await fetch(`/api/show/${id}?scope=${state.scope}`)).json();
 
   const poster = s.poster
     ? `<img src="https://image.tmdb.org/t/p/w185${s.poster}" alt="">`
@@ -591,12 +819,22 @@ async function openDetail(id) {
       ${poster}
       <div>
         <h2>${s.name}</h2>
-        <div class="sub">${s.certificate ? `<span class="cert">${esc(s.certificate)}</span>` : ""}${s.year} · ${s.genres.join(", ") || "—"} · ${s.seasons} seasons,
-          ${s.episodes} episodes · ★ ${s.rating}</div>
+        <div class="sub">${s.certificate ? `<span class="cert">${esc(s.certificate)}</span>` : ""}${s.year} · ${s.genres.join(", ") || "—"} · ${
+          s.kind === "movie" ? lengthOf(s) : `${s.seasons} seasons, ${s.episodes} episodes`
+        } · ★ ${s.rating}</div>
       </div>
       <button class="close" id="close-detail" aria-label="Close">&times;</button>
     </div>
     <p class="overview">${s.overview || "No synopsis available."}</p>
+
+    <h4>Keywords</h4>
+    <div class="chips">${(s.keywords_ranking || []).map((k) => `<span class="chip">${esc(k)}</span>`).join("") || "—"}</div>
+    ${(s.keywords_other || []).length ? `
+      <div class="chips" style="margin-top:6px">${s.keywords_other.map((k) => `<span class="chip faint">${esc(k)}</span>`).join("")}</div>
+      <div class="note">The bright ones are on at least three shows, so they carry
+        weight in the similarity engine and can appear in explanations. The dim ones
+        are too rare to create similarity with anything — they describe the show but
+        do not move the ranking.</div>` : ""}
 
     <h4>Does this describe the show? — vote per axis</h4>
     <div class="bars" id="vote-bars">${predicted}</div>
@@ -640,9 +878,6 @@ async function openDetail(id) {
       can say a house is haunted, only a viewer can say it made them jump.</div>
     <div id="review-list"></div>
 
-    <h4>Most distinctive keywords</h4>
-    <div class="chips">${s.top_keywords.map((k) => `<span class="chip">${k}</span>`).join("") || "—"}</div>
-
     <div class="sheet-actions">
       <button class="btn" id="find-similar">Find shows like this</button>
       <button class="btn ghost" id="close-detail-2">Close</button>
@@ -666,6 +901,9 @@ async function openDetail(id) {
       body: JSON.stringify({
         show_id: currentShow, axis, direction: btn.dataset.dir,
         score_shown: shown,
+        // Which catalogue, because film and series ids come from separate
+        // TMDB number spaces and the prior to fuse against differs.
+        scope: state.scope,
       }),
     });
     if (res.status === 401) { location.href = "/"; return; }
@@ -779,6 +1017,13 @@ async function loadAccount() {
   };
 }
 
+// How long the thing is, in the unit that makes sense for it. A film shown as
+// "1 eps" is technically true and reads as a bug.
+function lengthOf(r) {
+  if (r.kind === "movie") return r.runtime ? `${r.runtime} min` : "film";
+  return `${r.episodes} eps`;
+}
+
 // One card renderer, used by both search results and library listings.
 function showCard(r) {
   const poster = r.poster
@@ -791,7 +1036,9 @@ function showCard(r) {
       ${poster}
       <div>
         <h3>${esc(r.name)}</h3>
-        <div class="sub">${r.certificate ? `<span class="cert">${esc(r.certificate)}</span>` : ""}${esc(r.year)} · ${esc((r.genres || []).join(", ") || "—")} · ${r.episodes} eps · ★ ${r.rating}</div>
+        <div class="sub">${r.certificate ? `<span class="cert">${esc(r.certificate)}</span>` : ""}${esc(r.year)} · ${esc((r.genres || []).join(", ") || "—")} · ${lengthOf(r)} · ★ ${r.rating}${
+          r.on_netflix_gb === false ? ` · <span class="offnet">not on Netflix GB</span>` : ""
+        }</div>
         <div class="why">${esc(r.explanation || (r.overview || "").slice(0, 120))}</div>
       </div>
       <div class="score">

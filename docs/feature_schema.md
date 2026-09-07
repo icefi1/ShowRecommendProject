@@ -798,3 +798,256 @@ say no to most things agree often by accident. Landis and Koch (1977) read
 
 A second judge is what turns this from one person's opinion into a measurement,
 and is the thing most worth arranging before the write-up.
+
+---
+
+# v0.13 — the schema is carrying about eleven dimensions, not thirty-seven
+
+S9.4, run by `evaluation/feature_structure.py`. PCA on the standardised score
+matrix — correlation rather than covariance, because `documentary` sits near zero
+almost everywhere while `drama` is high across the catalogue, and without
+standardising the components would describe which axes have big numbers rather
+than which axes move together.
+
+| Variance kept | Components, of 37 |
+|---|---|
+| 80% | 4 |
+| 90% | 7 |
+| 95% | 10 |
+
+PC1 alone holds 43.2%, and six components clear an eigenvalue of 1.
+
+## Whose collapse is it?
+
+Every predicted axis is a linear function of the same 384-dimensional embedding,
+fitted by ridge on 78 examples. Shrinkage pulls those directions towards each
+other, so a model can manufacture correlation the schema does not have. The same
+PCA on the labels themselves separates the two:
+
+| Variance kept | Labels (78 shows) | Predictions (3,542) |
+|---|---|---|
+| 80% | 7 | 4 |
+| 90% | **11** | 7 |
+| 95% | 15 | 10 |
+
+**Both are real.** The labels need 11 components for 90% of variance, so the
+schema genuinely carries around eleven independent dimensions of human judgement
+rather than thirty-seven. The predictions need only 7, so the model compresses it
+further — exactly what ridge on 78 labels should be expected to do.
+
+## Which axes
+
+| Pair | r |
+|---|---|
+| `thriller` / `tense` | +0.97 |
+| `horror` / `jumpscares` | +0.96 |
+| `bleak` / `unsettling` | +0.94 |
+| `creepy` / `jumpscares` | +0.94 |
+| `warm` / `cosy` | +0.93 |
+
+Independent, by strongest correlation with anything else: `historical` 0.54,
+`sci_fi` 0.62, `romance` 0.66, `documentary` 0.70, `reality` 0.70, `ensemble`
+0.72. The axes TMDB's taxonomy cannot express are the ones doing the most
+distinct work, which is the taxonomy-gap argument arriving from a new direction.
+
+## Not a pruning instruction
+
+`horror` correlating 0.96 with `jumpscares` is partly a real property of this
+catalogue — most Netflix GB horror does use shocks — and partly the model being
+unable to separate them at 78 labels. Merging them would destroy the exact
+distinction the motivating query depends on. The defensible reading is that the
+mood cluster has six to eight axes of slack, and that the analysis should be
+re-run when the two matrices converge.
+
+78 shows against 37 variables is thin for PCA; the usual rule of thumb wants
+185–370. Treat the label column as indicative.
+
+---
+
+# v0.14 — the axes rank badly alone, and not clearly better together
+
+The gap this closes: every retrieval number so far came from TMDB metadata
+blocks. The 37 predicted axes were shown in the interface, took votes, and had
+no effect on results, so nothing had measured whether the project's actual
+contribution retrieves anything.
+
+## Alone
+
+| System | precision@5 |
+|---|---|
+| `blocked` | 0.134 |
+| `embeddings` | 0.087 |
+| `axes` (raw cosine) | 0.033 |
+| `axes-centred` | 0.040 |
+| `random` | 0.003 |
+
+Eleven to thirteen times chance, so the axes carry real signal, but nowhere near
+enough to rank on at 78 labels. Centring helps because every show scores
+something on `drama` and `tense`, so raw vectors all point the same way and
+cosine ends up describing the average programme.
+
+## Together, and a mistake worth recording
+
+Blending `(1 - w) * blocked + w * axes` at w = 0.15 lifts precision@5 from 0.134
+to 0.145, paired CI [0.006, 0.017], clear of zero. That was written up as a
+result for about ten minutes.
+
+It is not one. The weight was chosen by trying nine values and keeping the best,
+on the same 1,561 query shows the improvement was then reported on.
+
+`evaluation/axis_weight.py` does it properly — weight chosen on half the query
+shows, measured on the other half:
+
+| | |
+|---|---|
+| Weight chosen on tuning half | 0.15 |
+| Held out, `blocked` | 0.1332 |
+| Held out, `blocked` + axes | 0.1391 |
+| Difference | **+0.0059, CI [−0.0015, +0.0136]** |
+
+The gain halves and the interval crosses zero. Winner's curse, behaving exactly
+as advertised.
+
+## What this settles
+
+The axes stay out of ranking. `app/main.py` already excluded them, with a comment
+guessing that compressed magnitudes at low label counts would make results worse;
+that guess now has a measurement behind it.
+
+Direction is positive at every weight from 0.05 to 0.30 and the curve is smooth,
+so this is worth re-running at 150+ labels. If ridge shrinkage is what is
+drowning the signal, more labels should pull the interval clear. If it does not
+move, the axes belong in the interface and the explanations rather than in the
+distance metric — a legitimate finding, and a less convenient one.
+
+---
+
+# v0.15 — three catalogues: television, film and anime
+
+The interface now has three tabs, and two of them needed new data or new
+measurements rather than a filter.
+
+## Film is a separate feature space, not a flag
+
+`tmdb/fetch_movies.py` pulls the Netflix GB film catalogue: **5,462 films, zero
+failures**, 8.4 minutes. It borrows the show fetcher's rate limiter and retrying
+`get` rather than duplicating them, and normalises TMDB's film fields into the
+show shape (`title` to `name`, `release_dates` to `content_ratings`, the
+differently-nested `keywords.keywords` to `keywords.results`) so downstream code
+needs no second path.
+
+But the structure block could not be shared. **Seven of television's thirteen
+axes measure how a story spreads across a run of episodes** — episode count,
+season count, miniseries, per-episode rating variance, slow-burn slope, finale
+delta, standout-episode ratio. A film has one episode, so those are not zero for
+films, they are undefined, and writing them as zeros would tell the distance
+metric that every film is identical along seven axes.
+
+`app/build_movie_space.py` defines seven film axes instead:
+
+| Axis | Why |
+|---|---|
+| `runtime` | the only duration a film has |
+| `maturity` | same certificate scale as television |
+| `audience_rating` | same |
+| `audience_reach` | vote count. A blockbuster and a festival film are different propositions even on the same subject. Television has no equivalent because a series' vote count is confounded by how long it ran |
+| `release_recency` | separates a 1970s thriller from a 2023 one |
+| `part_of_series` | franchise membership — the closest a film gets to serialisation |
+| `ensemble_size` | cast size, standing in for `guest_star_mean` |
+
+## The taxonomy gap is television-specific, which sharpens it
+
+TMDB's **film** genre list has 19 entries and includes **Horror, Thriller,
+Romance, History and Fantasy** — every one of the headings its television list
+omits.
+
+So the argument in v0.1 gets stronger rather than weaker. It is not that TMDB
+lacks the vocabulary; the vocabulary exists and is used for film. Television
+simply does not get it, which makes "a recommender restricted to catalogue
+genres cannot accept 'a romance'" a fact about the television side specifically,
+and one TMDB's own film taxonomy demonstrates is fixable.
+
+## Anime is a mask, not a catalogue
+
+TMDB has no anime category, because anime is a production tradition rather than
+a genre. `build_space.is_anime` builds the test from what TMDB does record, and
+needs both halves:
+
+- **Japanese origin AND the Animation genre** — 187 shows
+- **the `anime` keyword** — 202 shows
+
+Neither alone is enough: origin-plus-genre misses 18 that the keyword finds, the
+keyword misses 3 that origin-plus-genre finds. Together, **205 series and 107
+films, 312 titles**. The deliberate exclusion is Japanese live action — Alice in
+Borderland is Japanese and is not anime, and origin alone would sweep it in.
+
+Because anime is a flag rather than a catalogue, the anime tab is the same
+filter seen from the other side: `only_anime=True` on the tab, `include_anime`
+on the other two. One mask, three behaviours.
+
+**One honest limitation.** Anime spans both catalogues, but the two cannot share
+a feature space, so an anime series recommends anime series and an anime film
+recommends anime films. Ranking across them would need a structure block that
+describes both a 12-episode series and a 2-hour film, and inventing one would
+mean discarding most of what each block measures.
+
+---
+
+# v0.16 — films get axes, and the anime catalogue stops being thin
+
+## Films are scored by the television model
+
+`training/score_movies.py` runs the trained head over all films. No retraining:
+the model is a ridge head over a frozen sentence transformer, so it reads text
+and returns 37 numbers, and nothing in it is specific to television.
+
+**This is transfer, and it is not measured.** All 78 labelled examples are
+series, and series text carries sampled episode summaries that film text has no
+equivalent of. Two reasons it survives better than that sounds: the encoder is
+frozen and general, trained on ordinary English rather than on television; and
+both text shapes are truncated to the encoder's 256-token window anyway, so what
+the model actually learned from was mostly title, genres, overview and keywords
+— which is exactly what film text is.
+
+Sanity checks read correctly: *The Dark Knight* `tense 0.59`, `action 0.44`,
+`horror 0.18`; *Forrest Gump* `warm 0.47`, `jumpscares 0.00`.
+
+One visible artefact: *The Dark Knight* scores `serialised 0.65`, which is
+meaningless for a standalone film. The axis has no film interpretation and the
+model has never had to decide that it does not apply.
+
+**The fact axes needed a second lookup.** TMDB names film genres differently —
+"Action" rather than "Action & Adventure", no Reality genre at all — so
+`TMDB_GENRE_SOURCE_FILM` maps them separately.
+
+The film list also carries Horror, Thriller, Romance, History, Science Fiction
+and Fantasy, which are judgement axes precisely because television lacks them.
+They are deliberately **not** promoted to facts for films. The fact/judgement
+split decides what the crowd may vote on, and making `horror` a fact for a film
+but a judgement for a series would mean the same axis taking votes in one tab
+and refusing them in the next. Doing it properly needs per-catalogue vote rules,
+which is a schema change rather than a lookup table.
+
+## Anime: 312 to 2,325
+
+Netflix GB carries about 300 anime titles across both catalogues. That is too
+thin for a tab of its own: query almost any of them and the same few dozen come
+back, because there is nothing else in the space to find.
+
+`tmdb/fetch_anime.py` fetches anime regardless of where it streams — Animation
+genre plus Japanese original language, both catalogues, no provider filter.
+
+| | Netflix GB | Added | Total |
+|---|---|---|---|
+| Anime series | 205 | 909 | **1,114** |
+| Anime films | 107 | 1,104 | **1,211** |
+| | | | **2,325** |
+
+**This breaks a scope rule the project set itself**, and the provenance is kept
+rather than blurred. Every record now carries `on_netflix_gb`, so the report can
+still state exactly what the Netflix GB catalogue contained — every S9 number
+predating this refers to that set — the evaluation can be re-run over either,
+and the interface labels anything off-Netflix on the card, because recommending
+something nobody can watch is a poor recommendation.
+
+Catalogue totals are now 4,451 series and 6,577 films, 11,028 titles.

@@ -9,11 +9,15 @@ episodes.json
 episode_features.csv
 app/feature_space.npz
 app/feature_space.json
+movies_raw.json
+app/feature_space_movie.npz
+app/feature_space_movie.json
 
 # Labelling and training outputs
 labelling/batch.txt
 training/model.joblib
 training/predictions.csv
+training/predictions_movie.csv
 training/report.md
 
 # Evaluation outputs - regenerate with the scripts in evaluation/
