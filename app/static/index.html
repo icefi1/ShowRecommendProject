@@ -139,6 +139,11 @@
 
   .chip.faint { opacity: .55; }
 
+  /* Anime fetched from outside the Netflix GB listing. Recommending something
+     nobody can watch is a poor recommendation, so where a title came from is
+     said on the card rather than left to be discovered. */
+  .offnet { color: var(--warn, #e6a765); }
+
   .empty { color: var(--muted); padding: 40px 0; text-align: center; }
 
   /* Paging control under the results. It doubles as the scroll sentinel: when
@@ -896,6 +901,9 @@ async function openDetail(id) {
       body: JSON.stringify({
         show_id: currentShow, axis, direction: btn.dataset.dir,
         score_shown: shown,
+        // Which catalogue, because film and series ids come from separate
+        // TMDB number spaces and the prior to fuse against differs.
+        scope: state.scope,
       }),
     });
     if (res.status === 401) { location.href = "/"; return; }
@@ -1028,7 +1036,9 @@ function showCard(r) {
       ${poster}
       <div>
         <h3>${esc(r.name)}</h3>
-        <div class="sub">${r.certificate ? `<span class="cert">${esc(r.certificate)}</span>` : ""}${esc(r.year)} · ${esc((r.genres || []).join(", ") || "—")} · ${lengthOf(r)} · ★ ${r.rating}</div>
+        <div class="sub">${r.certificate ? `<span class="cert">${esc(r.certificate)}</span>` : ""}${esc(r.year)} · ${esc((r.genres || []).join(", ") || "—")} · ${lengthOf(r)} · ★ ${r.rating}${
+          r.on_netflix_gb === false ? ` · <span class="offnet">not on Netflix GB</span>` : ""
+        }</div>
         <div class="why">${esc(r.explanation || (r.overview || "").slice(0, 120))}</div>
       </div>
       <div class="score">

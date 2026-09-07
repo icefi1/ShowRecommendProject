@@ -990,3 +990,64 @@ a feature space, so an anime series recommends anime series and an anime film
 recommends anime films. Ranking across them would need a structure block that
 describes both a 12-episode series and a 2-hour film, and inventing one would
 mean discarding most of what each block measures.
+
+---
+
+# v0.16 — films get axes, and the anime catalogue stops being thin
+
+## Films are scored by the television model
+
+`training/score_movies.py` runs the trained head over all films. No retraining:
+the model is a ridge head over a frozen sentence transformer, so it reads text
+and returns 37 numbers, and nothing in it is specific to television.
+
+**This is transfer, and it is not measured.** All 78 labelled examples are
+series, and series text carries sampled episode summaries that film text has no
+equivalent of. Two reasons it survives better than that sounds: the encoder is
+frozen and general, trained on ordinary English rather than on television; and
+both text shapes are truncated to the encoder's 256-token window anyway, so what
+the model actually learned from was mostly title, genres, overview and keywords
+— which is exactly what film text is.
+
+Sanity checks read correctly: *The Dark Knight* `tense 0.59`, `action 0.44`,
+`horror 0.18`; *Forrest Gump* `warm 0.47`, `jumpscares 0.00`.
+
+One visible artefact: *The Dark Knight* scores `serialised 0.65`, which is
+meaningless for a standalone film. The axis has no film interpretation and the
+model has never had to decide that it does not apply.
+
+**The fact axes needed a second lookup.** TMDB names film genres differently —
+"Action" rather than "Action & Adventure", no Reality genre at all — so
+`TMDB_GENRE_SOURCE_FILM` maps them separately.
+
+The film list also carries Horror, Thriller, Romance, History, Science Fiction
+and Fantasy, which are judgement axes precisely because television lacks them.
+They are deliberately **not** promoted to facts for films. The fact/judgement
+split decides what the crowd may vote on, and making `horror` a fact for a film
+but a judgement for a series would mean the same axis taking votes in one tab
+and refusing them in the next. Doing it properly needs per-catalogue vote rules,
+which is a schema change rather than a lookup table.
+
+## Anime: 312 to 2,325
+
+Netflix GB carries about 300 anime titles across both catalogues. That is too
+thin for a tab of its own: query almost any of them and the same few dozen come
+back, because there is nothing else in the space to find.
+
+`tmdb/fetch_anime.py` fetches anime regardless of where it streams — Animation
+genre plus Japanese original language, both catalogues, no provider filter.
+
+| | Netflix GB | Added | Total |
+|---|---|---|---|
+| Anime series | 205 | 909 | **1,114** |
+| Anime films | 107 | 1,104 | **1,211** |
+| | | | **2,325** |
+
+**This breaks a scope rule the project set itself**, and the provenance is kept
+rather than blurred. Every record now carries `on_netflix_gb`, so the report can
+still state exactly what the Netflix GB catalogue contained — every S9 number
+predating this refers to that set — the evaluation can be re-run over either,
+and the interface labels anything off-Netflix on the card, because recommending
+something nobody can watch is a poor recommendation.
+
+Catalogue totals are now 4,451 series and 6,577 films, 11,028 titles.

@@ -284,6 +284,11 @@ def build():
             # television series, so it carries kind "tv" and is_anime true, and
             # the interface decides whether to include it.
             "kind": "tv",
+            # False for anime added by tmdb/fetch_anime.py, which deliberately
+            # reaches outside the Netflix GB listing. Kept so the report can
+            # still say exactly what the Netflix catalogue holds, and so the
+            # interface can warn that a recommendation is not on Netflix.
+            "on_netflix_gb": s.get("on_netflix_gb", True),
             "is_anime": is_anime(s),
             # Every keyword TMDB has for this show, for display only.
             #

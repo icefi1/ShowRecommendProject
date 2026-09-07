@@ -145,17 +145,22 @@ class PreferenceQuery(BaseModel):
     offset: int = Field(0, ge=0, le=10_000)
 
 
-def load_predicted_axes():
+def load_predicted_axes(filename="predictions.csv"):
     """
-    Per-show predicted axis scores, if the model has been trained.
+    Per-title predicted axis scores, if the model has been run over them.
 
     These are the 37 schema axes the trained model produces. They are shown in
-    the detail panel but are deliberately NOT used for ranking yet - the model
-    is trained on 50 labels and its magnitudes are compressed, so it would make
-    recommendations worse. Displaying them keeps the two separable: you can see
-    what the model thinks without it silently steering results.
+    the detail panel but are deliberately NOT used for ranking - measured in
+    S9.5, adding them does not clearly help at 78 labels. Displaying them keeps
+    the two separable: you can see what the model thinks without it silently
+    steering results.
+
+    Two files, one per catalogue. The film scores come from the same model -
+    it reads text, and nothing in it is specific to television - but every
+    labelled example it learned from was a series, so those scores are transfer
+    and are not measured. See training/score_movies.py.
     """
-    path = ROOT / "training" / "predictions.csv"
+    path = ROOT / "training" / filename
     if not path.exists():
         return {}, []
 
@@ -174,9 +179,46 @@ def load_predicted_axes():
 
 
 PREDICTED, PREDICTED_AXES = load_predicted_axes()
+PREDICTED_MOVIE, _ = load_predicted_axes("predictions_movie.csv")
 
 
-def apply_facts(show_id, predicted):
+def predictions_for(scope, show_id):
+    """The right catalogue's predictions for one title."""
+    if scope == "movie" or (movie_space is not None
+                            and show_id not in space.index_by_id
+                            and show_id in movie_space.index_by_id):
+        return PREDICTED_MOVIE
+    return PREDICTED
+
+
+# TMDB names film genres differently from television ones, so the fact axes
+# need their own lookup on the film side. Two differences matter:
+#
+#   * Television conflates action and adventure into "Action & Adventure";
+#     film lists "Action" and "Adventure" separately, and `action` maps to the
+#     first of those.
+#   * Film has no Reality genre, so that axis stays a prediction there.
+#
+# The film list also has Horror, Thriller, Romance, History, Science Fiction and
+# Fantasy - every heading television lacks, and the reason those axes are
+# judgements at all. They are deliberately NOT promoted to facts here. The
+# fact/judgement split decides what the crowd may vote on, and making `horror` a
+# fact for films but a judgement for series would mean the same axis takes votes
+# in one tab and refuses them in the next. Doing it properly needs per-catalogue
+# vote rules, which is a schema change rather than a lookup table, and is
+# recorded as an open decision in docs/HANDOFF.md.
+TMDB_GENRE_SOURCE_FILM = {
+    "comedy": "Comedy",
+    "drama": "Drama",
+    "crime": "Crime",
+    "mystery": "Mystery",
+    "action": "Action",
+    "documentary": "Documentary",
+    "animation": "Animation",
+}
+
+
+def apply_facts(show_id, predicted, scope="tv"):
     """
     Let the catalogue overrule the model on axes it actually settles.
 
@@ -196,14 +238,16 @@ def apply_facts(show_id, predicted):
     Axes TMDB has no genre for - horror, thriller, romance, historical - are
     untouched. They are judgements, and they are the ones worth voting on.
     """
-    index = space.index_by_id.get(show_id)
+    target = space_for(scope, show_id) if scope != "tv" else space
+    index = target.index_by_id.get(show_id)
     if index is None or not predicted:
         return predicted
 
-    tmdb_genres = set(space.catalogue[index].get("genres", []))
+    tmdb_genres = set(target.catalogue[index].get("genres", []))
     out = dict(predicted)
 
-    for axis, genre in TMDB_GENRE_SOURCE.items():
+    sourced = TMDB_GENRE_SOURCE_FILM if target.kind == "movie" else TMDB_GENRE_SOURCE
+    for axis, genre in sourced.items():
         if axis not in out:
             continue
         tagged = genre in tmdb_genres
@@ -367,6 +411,9 @@ class Vote(BaseModel):
     direction: str = Field(pattern="^(up|down|neutral)$")
     # What the voter had on screen. "Higher" is meaningless without it.
     score_shown: float = Field(ge=0.0, le=1.0)
+    # Which catalogue the title came from. Needed because TMDB numbers films and
+    # series separately, so the prior to fuse against depends on it.
+    scope: str = "tv"
 
 
 @app.post("/api/vote")
@@ -393,7 +440,7 @@ def vote(v: Vote, request: Request):
 
     voter = f"user:{user['id']}"
     crowd.cast(v.show_id, v.axis, v.direction, v.score_shown, voter)
-    priors = apply_facts(v.show_id, PREDICTED.get(v.show_id, {}))
+    priors = apply_facts(v.show_id, predictions_for(v.scope, v.show_id).get(v.show_id, {}), v.scope)
 
     state = crowd.state_for_show(v.show_id, priors, voter)[v.axis]
     # Same shape as the detail endpoint. The client re-renders the row straight
@@ -414,7 +461,7 @@ def disagreements(min_votes: int = 3, limit: int = 40):
     """
     rows = []
     for row in crowd.disagreements(limit=limit, min_votes=min_votes):
-        priors = apply_facts(row["show_id"], PREDICTED.get(row["show_id"], {}))
+        priors = apply_facts(row["show_id"], PREDICTED.get(row["show_id"], {}), "tv")
         prior = priors.get(row["axis"])
         if prior is None:
             continue
@@ -476,7 +523,7 @@ def show_detail(show_id: int, request: Request, scope: str = "tv"):
     # Kept so an older cached page still renders something sensible.
     show["top_keywords"] = used[:12]
 
-    predicted = apply_facts(show_id, PREDICTED.get(show_id, {}))
+    predicted = apply_facts(show_id, predictions_for(scope, show_id).get(show_id, {}), scope)
     show["has_model"] = bool(predicted)
 
     # Every axis carries its model prior, its crowd-corrected score, the vote

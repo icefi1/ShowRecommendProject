@@ -17,6 +17,7 @@ app/feature_space_movie.json
 labelling/batch.txt
 training/model.joblib
 training/predictions.csv
+training/predictions_movie.csv
 training/report.md
 
 # Evaluation outputs - regenerate with the scripts in evaluation/

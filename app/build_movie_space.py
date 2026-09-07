@@ -155,6 +155,9 @@ def build():
             "certificate": certificate_label(m)[0],
             "maturity": round(certificate(m), 3),
             "kind": "movie",
+            # See build_space.py - false for anime fetched outside the Netflix
+            # GB listing, so provenance is never lost.
+            "on_netflix_gb": m.get("on_netflix_gb", True),
             "is_anime": is_anime(m),
             "collection": m.get("collection"),
             "keywords_all": sorted({k["name"] for k in m.get("keywords", {}).get("results", [])}),
