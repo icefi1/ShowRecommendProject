@@ -1,8 +1,13 @@
-# Show Recommender
+# Spectra
 
-An explainable television recommender. Every show is scored across 37 named
-axes, so a recommendation can be steered — more of this, less of that — and
-every result explains itself in plain language.
+**Every show, split into its parts.**
+
+An explainable recommender for television, film and anime. Every title is
+scored across 37 named axes, so a recommendation can be steered — more of this,
+less of that — and every result explains itself in plain language.
+
+The name is the idea: a prism splits white light into measured bands, and this
+splits a show into measured qualities you can ask for by name.
 
 The request it exists to answer, which conventional recommenders cannot
 express:
