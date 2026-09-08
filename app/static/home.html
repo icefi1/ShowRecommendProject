@@ -186,7 +186,17 @@
   .axes { display: grid; gap: 9px; max-width: 620px; margin: 0 auto; text-align: left; }
   .ax { display: grid; grid-template-columns: 128px 1fr 44px; gap: 12px; align-items: center; font-size: 14px; }
   .ax .track { height: 9px; background: var(--panel-2); border-radius: 5px; overflow: hidden; }
-  .ax .fill { height: 100%; border-radius: 5px; background: var(--accent); width: 0; transition: width 1.1s cubic-bezier(.2,.8,.2,1); }
+  /* display:block is load-bearing. A <span> is inline by default, and width and
+     height do not apply to a non-replaced inline element - so the fill computed
+     to a 0x0 box and never drew, however correct the width being set on it was.
+     The track escapes this because .ax is a grid container and grid items get
+     blockified; .fill is a child of the track, which is an ordinary block, so
+     nothing blockified it. */
+  .ax .fill {
+    display: block; height: 100%; border-radius: 5px;
+    background: var(--accent); width: 0;
+    transition: width 1.1s cubic-bezier(.2,.8,.2,1);
+  }
   .ax.hot .fill { background: var(--warm); }
   .ax .n { color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
 
@@ -664,9 +674,16 @@ setTimeout(() => {
   if (document.querySelector(".reveal.in")) return;  // observer is alive
   for (const el of document.querySelectorAll(".reveal")) {
     el.classList.add("in");
+    // Pinned panels are deliberately skipped. Their bars are driven by the
+    // scroll handler below, which does not use IntersectionObserver at all, so
+    // they were never at risk from a dead observer - and filling them here
+    // finished the animation before the reader ever reached it, leaving two
+    // hundred vertical viewports of pinned panel with nothing happening in it.
+    // That was the "it freezes when I scroll to Hill House" bug: not a stall,
+    // a scroll-driven animation that had already been played to the end.
+    if (el.closest(".pin-wrap")) continue;
     el.querySelectorAll(".fill[data-w]").forEach((f) => { f.style.width = f.dataset.w + "%"; });
   }
-  showPinsFinished();
 }, 1500);
 
 // --- scroll-driven pinned panels --------------------------------------------
@@ -701,8 +718,14 @@ function paintPin(wrap) {
   wrap.style.setProperty("--p", p.toFixed(4));
 
   // Staggered, so the rows cascade instead of moving as one block.
+  //
+  // The window matters as much as the stagger. At 0.45 every bar was full by
+  // 40% of the scroll, and the remaining 100vh of pinned panel had nothing
+  // moving in the part of the screen anyone was looking at. Spread over 0.55
+  // with a wider stagger, the last row lands at about 91%, so the hold is
+  // spent watching something arrive rather than waiting for it to end.
   wrap.querySelectorAll(".ax").forEach((row, i) => {
-    const local = ease(clamp01((p - i * 0.045) / 0.45));
+    const local = ease(clamp01((p - i * 0.06) / 0.55));
     const fill = row.querySelector(".fill[data-w]");
     if (fill) {
       // Inline, because the stylesheet gives .fill a 1.1s width transition for
@@ -720,7 +743,7 @@ function paintPin(wrap) {
   });
 
   wrap.querySelectorAll(".stat b").forEach((b, i) => {
-    countTo(b, ease(clamp01((p - i * 0.05) / 0.5)));
+    countTo(b, ease(clamp01((p - i * 0.06) / 0.55)));
   });
 }
 

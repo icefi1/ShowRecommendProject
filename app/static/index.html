@@ -188,6 +188,17 @@
   .bars { display: grid; gap: 5px; }
   .bar { display: grid; grid-template-columns: 132px 1fr 38px; gap: 9px; align-items: center; font-size: 12px; }
   .bar .track { height: 7px; background: var(--panel-2); border-radius: 4px; overflow: hidden; }
+  /* display:block matters, and is the whole reason these bars were invisible.
+     A <span> is inline, and width and height do not apply to a non-replaced
+     inline element, so every fill drew a 0x0 box no matter what width the
+     script set on it. The track escapes this because its parent row is a grid
+     container and grid items get blockified; the fill sits one level deeper
+     and nothing blockified it.
+
+     Written to cover .fill anywhere rather than under one row class, because
+     this bit me twice: once on the structure bars and again on the vote bars,
+     which use a different row class and so missed the first fix. */
+  .fill { display: block; }
   .bar .fill { height: 100%; background: var(--accent); border-radius: 4px; }
   .bar .fill.measured { background: var(--good); }
   .bar .num { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -221,6 +232,8 @@
   .vote.neutral[aria-pressed="true"] { background: var(--good); border-color: var(--good); }
   .tally { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
   .tally .drift { color: var(--accent); }
+  .vbar .track { height: 7px; background: var(--panel-2); border-radius: 4px; overflow: hidden; }
+  .vbar .fill { height: 100%; background: var(--accent); border-radius: 4px; }
   /* Facts are dimmed so the eye goes to the axes that are actually open. */
   .vbar.fact { opacity: .68; }
   .vbar.fact .fill { background: var(--muted); }
